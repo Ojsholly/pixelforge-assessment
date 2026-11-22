@@ -2,11 +2,14 @@
 
 namespace App\Providers;
 
+use App\Contracts\ImageGenerationProvider;
+use App\Services\Pixelforge\PixelforgeProvider;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
+use InvalidArgumentException;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -15,7 +18,10 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->app->bind(ImageGenerationProvider::class, fn ($app): ImageGenerationProvider => match (config('services.image_provider.driver')) {
+            'pixelforge' => $app->make(PixelforgeProvider::class),
+            default => throw new InvalidArgumentException('Unsupported image provider.'),
+        });
     }
 
     /**

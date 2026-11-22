@@ -2,6 +2,9 @@
 
 namespace App\Data\Pixelforge;
 
+use App\Enums\ImageQuality;
+use App\Enums\ImageSize;
+use App\Support\Money;
 use InvalidArgumentException;
 
 final readonly class PricingData
@@ -35,14 +38,43 @@ final readonly class PricingData
         }
 
         foreach (['input_text_tokens', 'input_image_tokens', 'output_tokens', 'reasoning_tokens'] as $rateKey) {
-            if (! isset($payload['rates'][$rateKey])) {
+            if (! isset($payload['rates'][$rateKey]) || ! is_string($payload['rates'][$rateKey])) {
                 throw new InvalidArgumentException("Malformed pricing payload: missing rate [{$rateKey}].");
+            }
+
+            if (Money::fromUsdString($payload['rates'][$rateKey]) < 0) {
+                throw new InvalidArgumentException("Malformed pricing payload: negative rate [{$rateKey}].");
             }
         }
 
         foreach (['characters_per_text_token', 'text_token_variance', 'per_reference_image', 'output', 'reasoning'] as $tokenKey) {
             if (! isset($payload['tokens'][$tokenKey])) {
                 throw new InvalidArgumentException("Malformed pricing payload: missing token config [{$tokenKey}].");
+            }
+        }
+
+        $variance = (float) $payload['tokens']['text_token_variance'];
+        if ($variance < 0.0 || $variance > 1.0) {
+            throw new InvalidArgumentException('Malformed pricing payload: text_token_variance must be between 0 and 1.');
+        }
+
+        foreach (ImageQuality::cases() as $quality) {
+            $range = $payload['tokens']['reasoning'][$quality->value] ?? null;
+
+            if (! is_array($range) || ! isset($range['min'], $range['max'])) {
+                throw new InvalidArgumentException("Malformed pricing payload: missing reasoning range for [{$quality->value}].");
+            }
+
+            if ((int) $range['min'] < 0 || (int) $range['max'] < (int) $range['min']) {
+                throw new InvalidArgumentException("Malformed pricing payload: invalid reasoning range for [{$quality->value}].");
+            }
+
+            foreach (ImageSize::cases() as $size) {
+                $output = $payload['tokens']['output'][$quality->value][$size->value] ?? null;
+
+                if ($output === null || (int) $output < 0) {
+                    throw new InvalidArgumentException("Malformed pricing payload: invalid output tokens for [{$quality->value}] / [{$size->value}].");
+                }
             }
         }
 
@@ -53,11 +85,36 @@ final readonly class PricingData
 
         return new self(
             charactersPerTextToken: (int) $tokens['characters_per_text_token'],
-            textTokenVariance: (float) $tokens['text_token_variance'],
+            textTokenVariance: $variance,
             perReferenceImageTokens: (int) $tokens['per_reference_image'],
             rates: $rates,
             outputTokens: $tokens['output'],
             reasoningTokens: $tokens['reasoning'],
         );
+    }
+
+    public function outputTokensFor(ImageQuality $quality, ImageSize $size): int
+    {
+        $tokens = $this->outputTokens[$quality->value][$size->value] ?? null;
+
+        if ($tokens === null) {
+            throw new InvalidArgumentException("Missing output token count for [{$quality->value}] / [{$size->value}].");
+        }
+
+        return $tokens;
+    }
+
+    /**
+     * @return array{min: int, max: int}
+     */
+    public function reasoningRangeFor(ImageQuality $quality): array
+    {
+        $range = $this->reasoningTokens[$quality->value] ?? null;
+
+        if ($range === null) {
+            throw new InvalidArgumentException("Missing reasoning token range for [{$quality->value}].");
+        }
+
+        return $range;
     }
 }
