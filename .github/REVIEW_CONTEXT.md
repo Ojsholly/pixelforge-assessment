@@ -5,7 +5,15 @@
 Pixelforge Image Studio (Laravel 13, PHP 8.4, Vue 3, Inertia v3, Wayfinder, Tailwind CSS v4, PostgreSQL 17).
 Manages asynchronous AI image generations, exact integer-nanodollar billing (+25% markup), signed idempotent webhooks, and wallet/ledger accounting.
 
-## Epic 02 — Pricing Pipeline (Current PR)
+## Epic 03 — Generation Lifecycle & Create Studio UI (Current PR)
+
+- **Centralized Error Handling (`bootstrap/app.php` + `ProviderException`):** `ProviderException` is rendered centrally in `bootstrap/app.php` (JSON `{ message, error_code }` for `expectsJson()`, or `back()->withErrors(['provider' => ...])` for Inertia) with structured `context()`. Controllers have zero `try/catch` blocks.
+- **Two-Transaction Boundary (`CreateGenerationAction`):** TX1 locks `wallets`, pre-creates `Generation` (`status: Queued`, `idempotency_key`), and reserves `estimated_max_user_cost` if funded *before* calling `POST /v1/generations` (so racing webhooks match via `metadata.local_generation_id`). Outbound HTTP retries `503`/timeouts with the same `Idempotency-Key`. TX2 reconciles `202` or transitions to `Failed` + releases 100% of hold on error.
+- **Idempotent State Machine (`ApplyGenerationStateAction`):** Uses `lockForUpdate()` + `GenerationState::canTransitionTo()` out-of-order guard; computes exact nanodollar costs and settles surplus/shortfall on `Succeeded` or refunds 100% on `Failed`.
+- **SSRF Guard (`SafeExternalUrl`):** Validates `http`/`https` schemes and rejects `localhost`, `.local`, `.internal`, and private/reserved IP ranges on `reference_images.*`.
+- **Create Studio UI (`resources/js/pages/Generations/Create.vue`):** Inertia v3 + Wayfinder + Tailwind v4 with debounced live cost estimate, Unicode char counter, 0–4 reference URLs, and inline provider error display.
+
+## Epic 02 — Pricing Pipeline (Merged)
 
 - **`ImageGenerationProvider` Binding (`AppServiceProvider`):** Resolves `PixelforgeProvider` from `config('services.image_provider.driver')` (default `pixelforge`). Remaining provider methods (`createGeneration`, `getGeneration`, `getUsage`, `verifyWebhookSignature`) intentionally throw `LogicException` until Epics 03, 04, and 07.
 - **`PixelforgeProvider::getPricing()`:** Fetches `GET /v1/pricing` with retry on transient `ConnectionException`/5xx, caches for 5 minutes (`pixelforge:pricing`), and hydrates `PricingData`.

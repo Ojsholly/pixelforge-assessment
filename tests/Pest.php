@@ -48,3 +48,33 @@ function something()
 {
     // ..
 }
+
+/**
+ * @return array<string, mixed>
+ */
+function validPricingPayload(): array
+{
+    return [
+        'rates' => [
+            'input_text_tokens' => '5.00',
+            'input_image_tokens' => '10.00',
+            'output_tokens' => '40.00',
+            'reasoning_tokens' => '12.50',
+        ],
+        'tokens' => [
+            'characters_per_text_token' => 4,
+            'text_token_variance' => 0.15,
+            'per_reference_image' => 765,
+            'output' => [
+                'low' => ['1024x1024' => 272, '1536x1024' => 408, '1024x1536' => 408],
+                'medium' => ['1024x1024' => 1100, '1536x1024' => 1650, '1024x1536' => 1650],
+                'high' => ['1024x1024' => 4160, '1536x1024' => 6240, '1024x1536' => 6240],
+            ],
+            'reasoning' => [
+                'low' => ['min' => 50, 'max' => 500],
+                'medium' => ['min' => 200, 'max' => 2000],
+                'high' => ['min' => 500, 'max' => 6000],
+            ],
+        ],
+    ];
+}

@@ -69,12 +69,63 @@ final class PixelforgeProvider implements ImageGenerationProvider
 
     public function createGeneration(CreateGenerationInput $input): ProviderGenerationData
     {
-        throw new LogicException('createGeneration() will be implemented in Epic 03.');
+        $body = [
+            'prompt' => $input->prompt,
+            'size' => $input->size->value,
+            'quality' => $input->quality->value,
+        ];
+
+        if ($input->referenceImages !== []) {
+            $body['reference_images'] = $input->referenceImages;
+        }
+
+        if ($input->metadata !== []) {
+            $body['metadata'] = $input->metadata;
+        }
+
+        try {
+            $response = $this->authenticatedClient()
+                ->withHeaders(['Idempotency-Key' => $input->idempotencyKey])
+                ->retry(3, 200, fn (Throwable $exception): bool => $exception instanceof ConnectionException
+                    || ($exception instanceof RequestException && $exception->response->status() === 503), throw: false)
+                ->post('/generations', $body);
+        } catch (ConnectionException $connectionException) {
+            throw new ProviderException(
+                message: 'Could not connect to Pixelforge generation endpoint.',
+                statusCode: 503,
+                errorCode: 'connection_error',
+                previous: $connectionException,
+            );
+        }
+
+        if ($response->failed()) {
+            throw $this->toProviderException($response, 'Failed to create Pixelforge generation.');
+        }
+
+        return $this->hydrateGeneration($response);
     }
 
     public function getGeneration(string $providerId): ProviderGenerationData
     {
-        throw new LogicException('getGeneration() will be implemented in Epic 03.');
+        try {
+            $response = $this->authenticatedClient()
+                ->retry(2, 200, fn (Throwable $exception): bool => $exception instanceof ConnectionException
+                    || ($exception instanceof RequestException && $exception->response->serverError()), throw: false)
+                ->get("/generations/{$providerId}");
+        } catch (ConnectionException $connectionException) {
+            throw new ProviderException(
+                message: 'Could not connect to Pixelforge generation endpoint.',
+                statusCode: 503,
+                errorCode: 'connection_error',
+                previous: $connectionException,
+            );
+        }
+
+        if ($response->failed()) {
+            throw $this->toProviderException($response, 'Failed to fetch Pixelforge generation.');
+        }
+
+        return $this->hydrateGeneration($response);
     }
 
     public function getUsage(string $startDate, string $endDate): UsageReportData
@@ -95,6 +146,46 @@ final class PixelforgeProvider implements ImageGenerationProvider
         return Http::baseUrl(rtrim($baseUrl, '/'))
             ->acceptJson()
             ->timeout(15);
+    }
+
+    private function authenticatedClient(): PendingRequest
+    {
+        $apiKey = (string) config('services.pixelforge.api_key', '');
+
+        if ($apiKey === '') {
+            throw new ProviderException(
+                message: 'Pixelforge API key is not configured.',
+                statusCode: 500,
+                errorCode: 'missing_api_key',
+            );
+        }
+
+        return $this->publicClient()->withToken($apiKey);
+    }
+
+    private function hydrateGeneration(Response $response): ProviderGenerationData
+    {
+        $payload = $response->json();
+
+        if (! is_array($payload)) {
+            throw new ProviderException(
+                message: 'Malformed generation payload: expected JSON object.',
+                statusCode: 502,
+                errorCode: 'malformed_response',
+            );
+        }
+
+        try {
+            /** @var array<string, mixed> $payload */
+            return ProviderGenerationData::fromArray($payload);
+        } catch (InvalidArgumentException $invalidArgumentException) {
+            throw new ProviderException(
+                message: $invalidArgumentException->getMessage(),
+                statusCode: 502,
+                errorCode: 'malformed_response',
+                previous: $invalidArgumentException,
+            );
+        }
     }
 
     private function toProviderException(Response $response, string $fallbackMessage): ProviderException
