@@ -68,7 +68,7 @@ const estimating = ref(false);
 let estimateTimer: ReturnType<typeof setTimeout> | null = null;
 let estimateAbortController: AbortController | null = null;
 
-const unicodeCharCount = computed(() => Array.from(form.prompt).length);
+const unicodeCharCount = computed(() => Array.from(form.prompt.trim()).length);
 const canAddReferenceImage = computed(() => referenceImages.value.length < 4);
 const providerError = computed(
     () => (form.errors as Record<string, string | undefined>).provider,

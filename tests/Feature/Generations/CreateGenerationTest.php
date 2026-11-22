@@ -222,7 +222,7 @@ it('blocks SSRF internal urls including IPv6 brackets, IPv4-mapped IPv6, and con
     ]);
 });
 
-it('accepts internationalized public reference URLs', function (): void {
+it('accepts internationalized and public IPv6 reference URLs', function (): void {
     seedPricingCacheAndKey();
 
     Http::fake([
@@ -237,10 +237,13 @@ it('accepts internationalized public reference URLs', function (): void {
     $user = User::factory()->create();
 
     $this->actingAs($user)->post(route('generations.store'), [
-        'prompt' => 'Test IDN url',
+        'prompt' => 'Test IDN and public IPv6 urls',
         'size' => '1024x1024',
         'quality' => 'medium',
-        'reference_images' => ['https://bücher.de/image.png'],
+        'reference_images' => [
+            'https://bücher.de/image.png',
+            'https://[2606:4700::1111]/reference.png',
+        ],
     ])->assertRedirect(route('generations.create'))
         ->assertSessionHasNoErrors();
 });

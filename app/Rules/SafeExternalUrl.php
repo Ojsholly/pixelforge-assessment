@@ -39,7 +39,9 @@ final class SafeExternalUrl implements ValidationRule
             return;
         }
 
-        $asciiUrl = $this->rebuildUrlWithAsciiHost($value, $parts['host'] ?? '', $host);
+        $asciiUrl = $host === $rawHost
+            ? $value
+            : $this->rebuildUrlWithAsciiHost($value, $parts['host'] ?? '', $host);
         if (! filter_var($asciiUrl, FILTER_VALIDATE_URL)) {
             $fail('The :attribute must be a valid URL.');
 
