@@ -54,6 +54,7 @@ final class Money
 
     /**
      * Format integer nanodollars for human-readable UI display (e.g. "$0.0461", "$5.00").
+     * Truncates beyond $maxDecimals rather than rounding.
      */
     public static function formatDisplay(int $nanodollars, int $minDecimals = 2, int $maxDecimals = 6): string
     {
@@ -75,11 +76,16 @@ final class Money
 
     /**
      * Apply percentage markup using exact half-up integer division.
+     * Safe from int64 overflow for amounts up to ~$73,000,000 USD at 25% markup.
      */
     public static function applyMarkup(int $nanodollars, int $markupPercent = self::DEFAULT_MARKUP_PERCENT): int
     {
         if ($nanodollars < 0) {
             throw new InvalidArgumentException('Cannot apply markup to a negative amount.');
+        }
+
+        if ($markupPercent <= -100) {
+            throw new InvalidArgumentException('Markup percent must be greater than -100.');
         }
 
         $multiplier = 100 + $markupPercent;

@@ -25,7 +25,7 @@ class GenerationFactory extends Factory
     {
         return [
             'user_id' => User::factory(),
-            'provider_id' => 'gen_'.Str::ulid(),
+            'provider_id' => null,
             'idempotency_key' => (string) Str::uuid(),
             'status' => Queued::class,
             'prompt' => fake()->sentence(10),
@@ -56,15 +56,25 @@ class GenerationFactory extends Factory
             'image_url_expires_at' => null,
             'error_code' => null,
             'error_message' => null,
-            'provider_created_at' => now(),
+            'provider_created_at' => null,
             'started_at' => null,
             'completed_at' => null,
         ];
     }
 
+    public function submitted(): static
+    {
+        return $this->state(fn (): array => [
+            'provider_id' => 'gen_'.Str::ulid(),
+            'provider_created_at' => now(),
+        ]);
+    }
+
     public function processing(): static
     {
         return $this->state(fn (): array => [
+            'provider_id' => 'gen_'.Str::ulid(),
+            'provider_created_at' => now()->subSeconds(5),
             'status' => Processing::class,
             'started_at' => now(),
         ]);
@@ -73,6 +83,8 @@ class GenerationFactory extends Factory
     public function succeeded(): static
     {
         return $this->state(fn (): array => [
+            'provider_id' => 'gen_'.Str::ulid(),
+            'provider_created_at' => now()->subSeconds(15),
             'status' => Succeeded::class,
             'started_at' => now()->subSeconds(10),
             'completed_at' => now(),
@@ -93,6 +105,8 @@ class GenerationFactory extends Factory
     public function failed(): static
     {
         return $this->state(fn (): array => [
+            'provider_id' => 'gen_'.Str::ulid(),
+            'provider_created_at' => now()->subSeconds(10),
             'status' => Failed::class,
             'started_at' => now()->subSeconds(5),
             'completed_at' => now(),

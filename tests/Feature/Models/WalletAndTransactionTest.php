@@ -5,14 +5,10 @@ use App\Enums\TransactionType;
 use App\Models\Generation;
 use App\Models\Transaction;
 use App\Models\User;
-use App\Models\Wallet;
 use App\Support\Money;
 use Illuminate\Database\UniqueConstraintViolationException;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 
-uses(RefreshDatabase::class);
-
-it('provisions a zero-balance wallet when a user registers', function (): void {
+it('provisions a zero-balance wallet when a user is created', function (): void {
     $response = $this->post('/register', [
         'name' => 'Test User',
         'email' => 'wallet-test@example.com',
@@ -31,10 +27,13 @@ it('provisions a zero-balance wallet when a user registers', function (): void {
 
 it('links transactions polymorphically to generations and prevents duplicate hold entries', function (): void {
     $user = User::factory()->create();
-    $wallet = Wallet::factory()->for($user)->withBalance(5 * Money::NANODOLLARS_PER_USD)->create();
+    $wallet = $user->wallet()->firstOrFail();
+    $wallet->balance = 5 * Money::NANODOLLARS_PER_USD;
+    $wallet->save();
+
     $generation = Generation::factory()->for($user)->create();
 
-    $transaction = Transaction::create([
+    $transaction = Transaction::forceCreate([
         'wallet_id' => $wallet->id,
         'transactionable_type' => $generation->getMorphClass(),
         'transactionable_id' => $generation->id,
@@ -48,7 +47,7 @@ it('links transactions polymorphically to generations and prevents duplicate hol
     expect($transaction->transactionable->is($generation))->toBeTrue()
         ->and($generation->transactions)->toHaveCount(1);
 
-    expect(fn () => Transaction::create([
+    expect(fn () => Transaction::forceCreate([
         'wallet_id' => $wallet->id,
         'transactionable_type' => $generation->getMorphClass(),
         'transactionable_id' => $generation->id,

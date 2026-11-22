@@ -4,13 +4,13 @@ namespace App\Models;
 
 use App\Enums\TransactionDirection;
 use App\Enums\TransactionType;
+use Carbon\CarbonImmutable;
 use Database\Factories\TransactionFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
-use Illuminate\Support\Carbon;
 
 /**
  * @property int $id
@@ -23,8 +23,8 @@ use Illuminate\Support\Carbon;
  * @property int $balance_after
  * @property string $description
  * @property array<string, mixed>|null $metadata
- * @property Carbon|null $created_at
- * @property Carbon|null $updated_at
+ * @property CarbonImmutable|null $created_at
+ * @property CarbonImmutable|null $updated_at
  * @property-read Wallet $wallet
  * @property-read Model|null $transactionable
  */
@@ -34,8 +34,6 @@ use Illuminate\Support\Carbon;
     'transactionable_id',
     'direction',
     'type',
-    'amount',
-    'balance_after',
     'description',
     'metadata',
 ])]

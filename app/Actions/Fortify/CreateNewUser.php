@@ -25,16 +25,10 @@ class CreateNewUser implements CreatesNewUsers
             'password' => $this->passwordRules(),
         ])->validate();
 
-        return DB::transaction(function () use ($input): User {
-            $user = User::create([
-                'name' => $input['name'],
-                'email' => $input['email'],
-                'password' => $input['password'],
-            ]);
-
-            $user->wallet()->create(['balance' => 0]);
-
-            return $user;
-        });
+        return DB::transaction(fn (): User => User::create([
+            'name' => $input['name'],
+            'email' => $input['email'],
+            'password' => $input['password'],
+        ]));
     }
 }

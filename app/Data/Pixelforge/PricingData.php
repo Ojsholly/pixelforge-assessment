@@ -2,6 +2,8 @@
 
 namespace App\Data\Pixelforge;
 
+use InvalidArgumentException;
+
 final readonly class PricingData
 {
     /**
@@ -28,6 +30,22 @@ final readonly class PricingData
      */
     public static function fromArray(array $payload): self
     {
+        if (! is_array($payload['rates'] ?? null) || ! is_array($payload['tokens'] ?? null)) {
+            throw new InvalidArgumentException('Malformed pricing payload: missing rates or tokens.');
+        }
+
+        foreach (['input_text_tokens', 'input_image_tokens', 'output_tokens', 'reasoning_tokens'] as $rateKey) {
+            if (! isset($payload['rates'][$rateKey])) {
+                throw new InvalidArgumentException("Malformed pricing payload: missing rate [{$rateKey}].");
+            }
+        }
+
+        foreach (['characters_per_text_token', 'text_token_variance', 'per_reference_image', 'output', 'reasoning'] as $tokenKey) {
+            if (! isset($payload['tokens'][$tokenKey])) {
+                throw new InvalidArgumentException("Malformed pricing payload: missing token config [{$tokenKey}].");
+            }
+        }
+
         /** @var array{input_text_tokens: string, input_image_tokens: string, output_tokens: string, reasoning_tokens: string} $rates */
         $rates = $payload['rates'];
         /** @var array{characters_per_text_token: int, text_token_variance: float|int, per_reference_image: int, output: array<string, array<string, int>>, reasoning: array<string, array{min: int, max: int}>} $tokens */

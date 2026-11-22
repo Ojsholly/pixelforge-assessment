@@ -3,6 +3,7 @@
 namespace App\Data\Pixelforge;
 
 use App\Enums\GenerationStatus;
+use InvalidArgumentException;
 
 final readonly class ProviderGenerationData
 {
@@ -35,6 +36,17 @@ final readonly class ProviderGenerationData
      */
     public static function fromArray(array $payload): self
     {
+        if (! isset($payload['id'], $payload['status']) || ! is_array($payload['rates'] ?? null)) {
+            throw new InvalidArgumentException('Malformed provider generation payload: missing id, status, or rates.');
+        }
+
+        $statusString = (string) $payload['status'];
+        $status = GenerationStatus::tryFrom($statusString);
+
+        if ($status === null) {
+            throw new InvalidArgumentException("Unsupported provider generation status: [{$statusString}].");
+        }
+
         /** @var array{input_text_tokens: string, input_image_tokens: string, output_tokens: string, reasoning_tokens: string} $rates */
         $rates = $payload['rates'];
         /** @var array<string, string> $metadata */
@@ -46,7 +58,7 @@ final readonly class ProviderGenerationData
 
         return new self(
             id: (string) $payload['id'],
-            status: GenerationStatus::from((string) $payload['status']),
+            status: $status,
             rates: $rates,
             metadata: $metadata,
             imageUrl: isset($payload['image_url']) ? (string) $payload['image_url'] : null,

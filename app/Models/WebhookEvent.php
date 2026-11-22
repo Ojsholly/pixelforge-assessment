@@ -3,11 +3,11 @@
 namespace App\Models;
 
 use App\Enums\WebhookEventType;
+use Carbon\CarbonImmutable;
 use Database\Factories\WebhookEventFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Carbon;
 
 /**
  * @property int $id
@@ -16,9 +16,9 @@ use Illuminate\Support\Carbon;
  * @property string|null $provider_generation_id
  * @property int $delivery_attempt
  * @property array<string, mixed> $payload
- * @property Carbon|null $processed_at
- * @property Carbon|null $created_at
- * @property Carbon|null $updated_at
+ * @property CarbonImmutable|null $processed_at
+ * @property CarbonImmutable|null $created_at
+ * @property CarbonImmutable|null $updated_at
  */
 #[Fillable([
     'provider_event_id',

@@ -5,13 +5,13 @@ namespace App\Models;
 use App\Enums\ImageQuality;
 use App\Enums\ImageSize;
 use App\States\Generation\GenerationState;
+use Carbon\CarbonImmutable;
 use Database\Factories\GenerationFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
-use Illuminate\Support\Carbon;
 use Spatie\ModelStates\HasStates;
 
 /**
@@ -33,21 +33,19 @@ use Spatie\ModelStates\HasStates;
  * @property int|null $actual_provider_cost
  * @property int|null $actual_user_cost
  * @property string|null $image_url
- * @property Carbon|null $image_url_expires_at
+ * @property CarbonImmutable|null $image_url_expires_at
  * @property string|null $error_code
  * @property string|null $error_message
- * @property Carbon|null $provider_created_at
- * @property Carbon|null $started_at
- * @property Carbon|null $completed_at
- * @property Carbon|null $created_at
- * @property Carbon|null $updated_at
+ * @property CarbonImmutable|null $provider_created_at
+ * @property CarbonImmutable|null $started_at
+ * @property CarbonImmutable|null $completed_at
+ * @property CarbonImmutable|null $created_at
+ * @property CarbonImmutable|null $updated_at
  * @property-read User $user
  */
 #[Fillable([
     'user_id',
-    'provider_id',
     'idempotency_key',
-    'status',
     'prompt',
     'size',
     'quality',
@@ -56,17 +54,6 @@ use Spatie\ModelStates\HasStates;
     'estimated_tokens',
     'estimated_min_user_cost',
     'estimated_max_user_cost',
-    'reserved_amount',
-    'actual_usage',
-    'actual_provider_cost',
-    'actual_user_cost',
-    'image_url',
-    'image_url_expires_at',
-    'error_code',
-    'error_message',
-    'provider_created_at',
-    'started_at',
-    'completed_at',
 ])]
 class Generation extends Model
 {
