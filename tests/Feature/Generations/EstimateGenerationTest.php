@@ -70,5 +70,8 @@ it('validates estimate inputs and returns 503 when pricing provider fails', func
         'size' => '1024x1024',
         'quality' => 'medium',
     ])->assertServiceUnavailable()
-        ->assertJson(['message' => 'Unable to fetch pricing estimate right now. Please try again.']);
+        ->assertJson([
+            'message' => 'The image provider is temporarily overloaded. Please try again shortly.',
+            'error_code' => 'overloaded',
+        ]);
 });

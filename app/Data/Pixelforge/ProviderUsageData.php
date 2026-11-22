@@ -2,6 +2,8 @@
 
 namespace App\Data\Pixelforge;
 
+use InvalidArgumentException;
+
 final readonly class ProviderUsageData
 {
     public function __construct(
@@ -17,6 +19,12 @@ final readonly class ProviderUsageData
      */
     public static function fromArray(array $payload): self
     {
+        foreach (['input_text_tokens', 'input_image_tokens', 'output_tokens', 'reasoning_tokens', 'total_tokens'] as $key) {
+            if (! isset($payload[$key]) || ! is_numeric($payload[$key])) {
+                throw new InvalidArgumentException("Malformed usage payload: missing or invalid [{$key}].");
+            }
+        }
+
         return new self(
             inputTextTokens: (int) $payload['input_text_tokens'],
             inputImageTokens: (int) $payload['input_image_tokens'],

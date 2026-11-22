@@ -1,11 +1,14 @@
 <?php
 
+use App\Exceptions\ProviderException;
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 
 return Application::configure(basePath: dirname(__DIR__))
@@ -27,4 +30,17 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request): bool => $request->is('api/*') || $request->expectsJson(),
         );
+
+        $exceptions->render(function (ProviderException $exception, Request $request): JsonResponse|RedirectResponse {
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'message' => $exception->userMessage(),
+                    'error_code' => $exception->errorCode,
+                ], $exception->httpStatus());
+            }
+
+            return back()->withErrors([
+                'provider' => $exception->userMessage(),
+            ]);
+        });
     })->create();
