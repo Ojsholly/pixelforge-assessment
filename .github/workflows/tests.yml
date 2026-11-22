@@ -3,8 +3,12 @@ name: tests
 on:
   push:
     branches:
-      - main
+      - master
+      - development
   pull_request:
+    branches:
+      - master
+      - development
 
 permissions:
   contents: read
@@ -24,7 +28,7 @@ jobs:
         with:
           php-version: '8.4'
           tools: composer:v2
-          coverage: none
+          coverage: pcov
 
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -34,5 +38,70 @@ jobs:
       - name: Setup Application
         run: composer setup
 
-      - name: Run CI Checks
-        run: composer ci:check
+      - name: Run Frontend & Static Analysis Checks
+        run: |
+          npm run check
+          npm run types:check
+          composer lint:check
+          composer refactor:check
+          composer types:check
+
+      - name: Run Tests with Coverage
+        run: php artisan test --coverage
+
+  postgres:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: pixelforge_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # v2
+        with:
+          php-version: '8.4'
+          extensions: pdo_pgsql, pgsql
+          tools: composer:v2
+          coverage: none
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+
+      - name: Install Dependencies & Build Frontend
+        run: |
+          composer install --no-interaction --prefer-dist
+          cp .env.example .env
+          php artisan key:generate
+          npm ci
+          npm run build
+
+      - name: Run Migrations & Tests on PostgreSQL
+        env:
+          DB_CONNECTION: pgsql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_DATABASE: pixelforge_test
+          DB_USERNAME: postgres
+          DB_PASSWORD: password
+        run: |
+          php artisan migrate --force --no-interaction
+          php artisan test --no-coverage
