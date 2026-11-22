@@ -4,6 +4,7 @@ namespace App\Data\Pixelforge;
 
 use App\Enums\ImageQuality;
 use App\Enums\ImageSize;
+use App\Support\Money;
 use InvalidArgumentException;
 
 final readonly class PricingData
@@ -37,8 +38,12 @@ final readonly class PricingData
         }
 
         foreach (['input_text_tokens', 'input_image_tokens', 'output_tokens', 'reasoning_tokens'] as $rateKey) {
-            if (! isset($payload['rates'][$rateKey])) {
+            if (! isset($payload['rates'][$rateKey]) || ! is_string($payload['rates'][$rateKey])) {
                 throw new InvalidArgumentException("Malformed pricing payload: missing rate [{$rateKey}].");
+            }
+
+            if (Money::fromUsdString($payload['rates'][$rateKey]) < 0) {
+                throw new InvalidArgumentException("Malformed pricing payload: negative rate [{$rateKey}].");
             }
         }
 
@@ -53,9 +58,26 @@ final readonly class PricingData
         /** @var array{characters_per_text_token: int, text_token_variance: float|int, per_reference_image: int, output: array<string, array<string, int>>, reasoning: array<string, array{min: int, max: int}>} $tokens */
         $tokens = $payload['tokens'];
 
+        $variance = (float) $tokens['text_token_variance'];
+        if ($variance < 0.0 || $variance > 1.0) {
+            throw new InvalidArgumentException('Malformed pricing payload: text_token_variance must be between 0 and 1.');
+        }
+
+        foreach (ImageQuality::cases() as $quality) {
+            if (! isset($tokens['reasoning'][$quality->value]['min'], $tokens['reasoning'][$quality->value]['max'])) {
+                throw new InvalidArgumentException("Malformed pricing payload: missing reasoning range for [{$quality->value}].");
+            }
+
+            foreach (ImageSize::cases() as $size) {
+                if (! isset($tokens['output'][$quality->value][$size->value])) {
+                    throw new InvalidArgumentException("Malformed pricing payload: missing output tokens for [{$quality->value}] / [{$size->value}].");
+                }
+            }
+        }
+
         return new self(
             charactersPerTextToken: (int) $tokens['characters_per_text_token'],
-            textTokenVariance: (float) $tokens['text_token_variance'],
+            textTokenVariance: $variance,
             perReferenceImageTokens: (int) $tokens['per_reference_image'],
             rates: $rates,
             outputTokens: $tokens['output'],

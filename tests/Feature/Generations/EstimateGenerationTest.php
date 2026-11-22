@@ -15,27 +15,10 @@ it('requires authentication to estimate generation costs', function (): void {
 
 it('returns an exact nanodollar cost estimate for authenticated users', function (): void {
     Cache::forget(PixelforgeProvider::PRICING_CACHE_KEY);
+    config(['services.pixelforge.api_key' => 'test-key']);
 
     Http::fake([
-        'https://pixelforge.promptedit.dev/v1/pricing' => Http::response([
-            'rates' => [
-                'input_text_tokens' => '5.00',
-                'input_image_tokens' => '10.00',
-                'output_tokens' => '40.00',
-                'reasoning_tokens' => '12.50',
-            ],
-            'tokens' => [
-                'characters_per_text_token' => 4,
-                'text_token_variance' => 0.15,
-                'per_reference_image' => 765,
-                'output' => [
-                    'medium' => ['1024x1024' => 1100],
-                ],
-                'reasoning' => [
-                    'medium' => ['min' => 200, 'max' => 2000],
-                ],
-            ],
-        ], 200),
+        'https://pixelforge.promptedit.dev/v1/pricing' => Http::response(validPricingPayload(), 200),
     ]);
 
     $user = User::factory()->create();
@@ -60,4 +43,34 @@ it('returns an exact nanodollar cost estimate for authenticated users', function
             'user_max_display',
             'rates_snapshot',
         ]);
+
+    expect($response->json('user_max_nanodollars'))->toBeGreaterThan($response->json('provider_max_nanodollars'));
+});
+
+it('validates estimate inputs and returns 503 when pricing provider fails', function (): void {
+    $user = User::factory()->create();
+
+    $this->actingAs($user)->postJson(route('generations.estimate'), [
+        'size' => 'invalid-size',
+        'quality' => 'ultra',
+        'reference_images' => [
+            'not-a-url',
+            'https://example.com/2.png',
+            'https://example.com/3.png',
+            'https://example.com/4.png',
+            'https://example.com/5.png',
+        ],
+        'prompt' => str_repeat('a', 4001),
+    ])->assertUnprocessable()
+        ->assertJsonValidationErrors(['size', 'quality', 'reference_images', 'reference_images.0', 'prompt']);
+
+    Cache::forget(PixelforgeProvider::PRICING_CACHE_KEY);
+    config(['services.pixelforge.api_key' => '']);
+
+    $this->actingAs($user)->postJson(route('generations.estimate'), [
+        'prompt' => 'Valid prompt',
+        'size' => '1024x1024',
+        'quality' => 'medium',
+    ])->assertServiceUnavailable()
+        ->assertJson(['message' => 'Unable to fetch pricing estimate right now. Please try again.']);
 });

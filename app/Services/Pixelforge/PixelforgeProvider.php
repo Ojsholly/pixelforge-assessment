@@ -14,20 +14,30 @@ use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use InvalidArgumentException;
 use LogicException;
 use Throwable;
 
-class PixelforgeProvider implements ImageGenerationProvider
+final class PixelforgeProvider implements ImageGenerationProvider
 {
     public const string PRICING_CACHE_KEY = 'pixelforge:pricing';
 
     public function getPricing(): PricingData
     {
         return Cache::remember(self::PRICING_CACHE_KEY, now()->addMinutes(5), function (): PricingData {
-            $response = $this->client()
-                ->retry(2, 200, fn (Throwable $exception): bool => $exception instanceof ConnectionException
-                    || ($exception instanceof RequestException && $exception->response->serverError()), throw: false)
-                ->get('/pricing');
+            try {
+                $response = $this->client()
+                    ->retry(2, 200, fn (Throwable $exception): bool => $exception instanceof ConnectionException
+                        || ($exception instanceof RequestException && $exception->response->serverError()), throw: false)
+                    ->get('/pricing');
+            } catch (ConnectionException $connectionException) {
+                throw new ProviderException(
+                    message: 'Could not connect to Pixelforge pricing endpoint.',
+                    statusCode: 503,
+                    errorCode: 'connection_error',
+                    previous: $connectionException,
+                );
+            }
 
             if ($response->failed()) {
                 throw $this->toProviderException($response, 'Failed to fetch Pixelforge pricing.');
@@ -36,7 +46,16 @@ class PixelforgeProvider implements ImageGenerationProvider
             /** @var array<string, mixed> $payload */
             $payload = $response->json() ?? [];
 
-            return PricingData::fromArray($payload);
+            try {
+                return PricingData::fromArray($payload);
+            } catch (InvalidArgumentException $invalidArgumentException) {
+                throw new ProviderException(
+                    message: $invalidArgumentException->getMessage(),
+                    statusCode: 502,
+                    errorCode: 'malformed_response',
+                    previous: $invalidArgumentException,
+                );
+            }
         });
     }
 
@@ -65,6 +84,14 @@ class PixelforgeProvider implements ImageGenerationProvider
         /** @var string $baseUrl */
         $baseUrl = config('services.pixelforge.base_url', 'https://pixelforge.promptedit.dev/v1');
         $apiKey = (string) config('services.pixelforge.api_key', '');
+
+        if ($apiKey === '') {
+            throw new ProviderException(
+                message: 'Pixelforge API key is not configured.',
+                statusCode: 500,
+                errorCode: 'missing_api_key',
+            );
+        }
 
         return Http::baseUrl(rtrim($baseUrl, '/'))
             ->withToken($apiKey)
