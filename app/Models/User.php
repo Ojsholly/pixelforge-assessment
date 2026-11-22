@@ -44,6 +44,18 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
         static::created(function (User $user): void {
             $user->wallet()->firstOrCreate([], ['balance' => 0]);
         });
+
+        static::deleting(function (User $user): void {
+            WebhookEvent::query()
+                ->whereIn(
+                    'provider_generation_id',
+                    Generation::query()
+                        ->where('user_id', $user->id)
+                        ->whereNotNull('provider_id')
+                        ->select('provider_id'),
+                )
+                ->delete();
+        });
     }
 
     /**

@@ -2,10 +2,12 @@
 
 use App\Enums\TransactionType;
 use App\Models\Generation;
+use App\Models\Transaction;
 use App\Models\User;
 use App\Models\WebhookEvent;
 use App\States\Generation\Failed;
 use App\States\Generation\Processing;
+use App\States\Generation\Queued;
 use App\States\Generation\Succeeded;
 use App\Support\Money;
 use Illuminate\Support\Facades\Http;
@@ -300,7 +302,7 @@ it('reconciles stale queued and processing generations via artisan command', fun
     Http::assertSentCount(1);
 });
 
-it('acknowledges malformed generation webhook objects without 500 and times out expired stale generations', function (): void {
+it('acknowledges malformed generation webhook objects without 500 and fails stale generations the provider no longer has', function (): void {
     config([
         'services.pixelforge.webhook_secret' => 'whsec_test_secret',
         'services.pixelforge.api_key' => 'test-key',
@@ -341,5 +343,180 @@ it('acknowledges malformed generation webhook objects without 500 and times out 
         ->assertSuccessful();
 
     expect($generation->refresh()->status)->toBeInstanceOf(Failed::class)
-        ->and($generation->error_code)->toBe('reconciliation_timeout');
+        ->and($generation->error_code)->toBe('reconciliation_not_found');
+});
+
+it('times out generations the provider still reports as pending past max age', function (): void {
+    config(['services.pixelforge.api_key' => 'test-key']);
+
+    $expired = Generation::factory()->submitted()->create([
+        'provider_id' => 'gen_pending_old',
+        'created_at' => now()->subHours(2),
+        'updated_at' => now()->subMinutes(5),
+    ]);
+
+    $withinLimit = Generation::factory()->processing()->create([
+        'provider_id' => 'gen_pending_new',
+        'created_at' => now()->subMinutes(30),
+        'updated_at' => now()->subMinutes(5),
+    ]);
+
+    Http::fake([
+        'https://pixelforge.promptedit.dev/v1/generations/gen_pending_old' => Http::response([
+            'id' => 'gen_pending_old',
+            'status' => 'processing',
+            'rates' => $expired->rates_snapshot,
+            'started_at' => now()->subHour()->toIso8601String(),
+        ], 200),
+        'https://pixelforge.promptedit.dev/v1/generations/gen_pending_new' => Http::response([
+            'id' => 'gen_pending_new',
+            'status' => 'processing',
+            'rates' => $withinLimit->rates_snapshot,
+            'started_at' => now()->subMinutes(10)->toIso8601String(),
+        ], 200),
+    ]);
+
+    $this->artisan('generations:reconcile-stale --max-age=60')
+        ->expectsOutput('Reconciled 1 stale generation(s).')
+        ->assertSuccessful();
+
+    expect($expired->refresh()->status)->toBeInstanceOf(Failed::class)
+        ->and($expired->error_code)->toBe('reconciliation_timeout')
+        ->and($withinLimit->refresh()->status)->toBeInstanceOf(Processing::class);
+});
+
+it('skips transient provider errors and only fails generations past the hard max age', function (): void {
+    config(['services.pixelforge.api_key' => 'test-key']);
+
+    $recent = Generation::factory()->submitted()->create([
+        'provider_id' => 'gen_outage_recent',
+        'created_at' => now()->subHours(2),
+        'updated_at' => now()->subMinutes(5),
+    ]);
+
+    $ancient = Generation::factory()->submitted()->create([
+        'provider_id' => 'gen_outage_ancient',
+        'created_at' => now()->subDays(2),
+        'updated_at' => now()->subMinutes(5),
+    ]);
+
+    Http::fake([
+        'https://pixelforge.promptedit.dev/v1/generations/*' => Http::response('Service unavailable', 503),
+    ]);
+
+    $this->artisan('generations:reconcile-stale')
+        ->expectsOutput('Reconciled 1 stale generation(s).')
+        ->assertSuccessful();
+
+    expect($recent->refresh()->status)->toBeInstanceOf(Queued::class)
+        ->and($ancient->refresh()->status)->toBeInstanceOf(Failed::class)
+        ->and($ancient->error_code)->toBe('reconciliation_unreachable');
+});
+
+it('acknowledges webhooks with unparseable timestamps without retrying forever', function (): void {
+    config(['services.pixelforge.webhook_secret' => 'whsec_test_secret']);
+
+    $generation = Generation::factory()->submitted()->create([
+        'provider_id' => 'gen_bad_ts',
+    ]);
+
+    $rawBody = json_encode([
+        'id' => 'evt_bad_ts',
+        'object' => 'event',
+        'type' => 'generation.succeeded',
+        'data' => [
+            'object' => [
+                'id' => 'gen_bad_ts',
+                'status' => 'succeeded',
+                'rates' => $generation->rates_snapshot,
+                'completed_at' => 'not-a-timestamp',
+            ],
+        ],
+    ], JSON_THROW_ON_ERROR);
+
+    $this->call('POST', route('webhooks.pixelforge'), [], [], [], [
+        'CONTENT_TYPE' => 'application/json',
+        'HTTP_PIXELFORGE_SIGNATURE' => signWebhookPayload($rawBody),
+    ], $rawBody)->assertNoContent();
+
+    expect(WebhookEvent::firstWhere('provider_event_id', 'evt_bad_ts')?->processed_at)->not->toBeNull()
+        ->and($generation->refresh()->status)->toBeInstanceOf(Queued::class);
+});
+
+it('rolls back settlement and processed_at together when the state action throws', function (): void {
+    config(['services.pixelforge.webhook_secret' => 'whsec_test_secret']);
+
+    $user = User::factory()->create();
+
+    $generation = Generation::factory()->processing()->for($user)->create([
+        'provider_id' => 'gen_atomic_1',
+        'reserved_amount' => 50_000_000,
+        'estimated_max_user_cost' => 50_000_000,
+    ]);
+
+    // Force a mid-transaction failure: the settlement wallet lookup now fails.
+    $user->wallet()->firstOrFail()->delete();
+
+    $rawBody = json_encode([
+        'id' => 'evt_atomic_1',
+        'object' => 'event',
+        'type' => 'generation.succeeded',
+        'data' => [
+            'object' => [
+                'id' => 'gen_atomic_1',
+                'status' => 'succeeded',
+                'rates' => $generation->rates_snapshot,
+                'completed_at' => '2026-11-22T12:00:15Z',
+            ],
+        ],
+    ], JSON_THROW_ON_ERROR);
+
+    $this->call('POST', route('webhooks.pixelforge'), [], [], [], [
+        'CONTENT_TYPE' => 'application/json',
+        'HTTP_PIXELFORGE_SIGNATURE' => signWebhookPayload($rawBody),
+    ], $rawBody)->assertNotFound();
+
+    expect(WebhookEvent::firstWhere('provider_event_id', 'evt_atomic_1')?->processed_at)->toBeNull()
+        ->and($generation->refresh()->status)->toBeInstanceOf(Processing::class)
+        ->and(Transaction::count())->toBe(0);
+});
+
+it('deletes webhook events belonging to a user when their account is deleted', function (): void {
+    $user = User::factory()->create();
+    $other = User::factory()->create();
+
+    Generation::factory()->submitted()->for($user)->create(['provider_id' => 'gen_del_1']);
+    Generation::factory()->submitted()->for($other)->create(['provider_id' => 'gen_del_2']);
+
+    WebhookEvent::factory()->create(['provider_generation_id' => 'gen_del_1', 'processed_at' => now()]);
+    WebhookEvent::factory()->create(['provider_generation_id' => 'gen_del_2', 'processed_at' => now()]);
+    WebhookEvent::factory()->create(['provider_generation_id' => null, 'processed_at' => now()]);
+
+    $user->delete();
+
+    expect(WebhookEvent::where('provider_generation_id', 'gen_del_1')->count())->toBe(0)
+        ->and(WebhookEvent::where('provider_generation_id', 'gen_del_2')->count())->toBe(1)
+        ->and(WebhookEvent::whereNull('provider_generation_id')->count())->toBe(1)
+        ->and(Generation::where('user_id', $user->id)->count())->toBe(0);
+});
+
+it('prunes processed webhook events older than thirty days', function (): void {
+    $expired = WebhookEvent::factory()->create([
+        'processed_at' => now()->subDays(31),
+        'created_at' => now()->subDays(31),
+    ]);
+    $recent = WebhookEvent::factory()->create([
+        'processed_at' => now(),
+        'created_at' => now()->subDay(),
+    ]);
+    $unprocessed = WebhookEvent::factory()->create([
+        'processed_at' => null,
+        'created_at' => now()->subDays(31),
+    ]);
+
+    $this->artisan('model:prune', ['--model' => WebhookEvent::class])->assertSuccessful();
+
+    expect(WebhookEvent::find($expired->id))->toBeNull()
+        ->and(WebhookEvent::find($recent->id))->not->toBeNull()
+        ->and(WebhookEvent::find($unprocessed->id))->not->toBeNull();
 });
