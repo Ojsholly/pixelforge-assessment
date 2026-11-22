@@ -5,7 +5,17 @@
 Pixelforge Image Studio (Laravel 13, PHP 8.4, Vue 3, Inertia v3, Wayfinder, Tailwind CSS v4, PostgreSQL 17).
 Manages asynchronous AI image generations, exact integer-nanodollar billing (+25% markup), signed idempotent webhooks, and wallet/ledger accounting.
 
-## Epic 04 — Webhooks, Signature Verification & Idempotency (Current PR)
+## Epic 05 — History, Detail & Dashboard UI (Current PR)
+
+- **History Index (`GenerationController::index` + `Generations/Index.vue`):** `GET /generations` returns only the authenticated user's generations, ordered newest-first, paginated 12/page (`withQueryString()`), filterable by `?status=` (backed-enum `tryFrom` — invalid values fall back to All). Per-status counts power the filter tabs. The page smart-polls with `usePoll(4000, { only: ['generations'] })`, starting/stopping automatically based on whether any visible row is `queued`/`processing`.
+- **Detail Page (`GenerationController::show` + `Generations/Show.vue`):** `GET /generations/{generation}` (implicit binding) renders the full image (with expired-URL fallback), prompt + reference images, lifecycle timestamps, estimated vs. actual token usage, `rates_snapshot`, and estimated min–max vs. actual cost — `Free ($0.00)` on failed generations. Polls `{ only: ['generation'] }` while pending.
+- **On-Demand Refresh (`GenerationController::refresh`):** `POST /generations/{generation}/refresh` (throttled `30,1`) polls `GET /v1/generations/{provider_id}` and runs the result through the same `ApplyGenerationStateAction` settlement path as webhooks — idempotent via `GenerationState::canTransitionTo()`. `provider_id === null` → `back()->withErrors(['provider' => ...])`; provider failures surface through the centralized `ProviderException` renderer (no controller `try/catch`).
+- **Authorization (`GenerationPolicy`):** `view`/`refresh` abilities enforced via `Gate::authorize` in the controller — cross-user access returns `403`. Index/show are owner-scoped by `where('user_id', ...)`.
+- **Presentation (`App\Support\GenerationPresenter`):** Single serializer shared by index/show/dashboard — summary and detail shapes, HTTPS-only `image_url` sanitization (provider data is untrusted), `image_expired` flag, `Money::formatDisplay` for all costs, and grouped per-status counts.
+- **Dashboard (`DashboardController` + `Dashboard.vue` rewrite):** Replaces `Route::inertia` with a real controller serving wallet balance, status counts, and the 5 most recent generation summaries.
+- **Navigation (`AppSidebar.vue`):** Adds a `History` item via the generated `index()` Wayfinder route; all links use named/Wayfinder routes — no hard-coded URLs.
+
+## Epic 04 — Webhooks, Signature Verification & Idempotency (Merged)
 
 - **Signature Verification (`PixelforgeProvider::verifyWebhookSignature`):** Parses `Pixelforge-Signature` (`t=<ts>,v1=<hex>`), enforces a 300s replay window, and uses constant-time `hash_equals` on `"{$timestamp}.{$rawPayload}"` via PHP 8.4 `array_any`.
 - **CSRF & Auth Exemption (`bootstrap/app.php`, `routes/web.php`):** `POST /webhooks/pixelforge` is outside `auth` middleware and excluded from CSRF verification.
