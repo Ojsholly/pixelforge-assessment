@@ -13,9 +13,9 @@ it('requires authentication to estimate generation costs', function (): void {
     ])->assertUnauthorized();
 });
 
-it('returns an exact nanodollar cost estimate for authenticated users', function (): void {
+it('returns an exact nanodollar cost estimate for authenticated users even with an empty API key', function (): void {
     Cache::forget(PixelforgeProvider::PRICING_CACHE_KEY);
-    config(['services.pixelforge.api_key' => 'test-key']);
+    config(['services.pixelforge.api_key' => '']);
 
     Http::fake([
         'https://pixelforge.promptedit.dev/v1/pricing' => Http::response(validPricingPayload(), 200),
@@ -31,20 +31,14 @@ it('returns an exact nanodollar cost estimate for authenticated users', function
     ]);
 
     $response->assertOk()
-        ->assertJsonStructure([
-            'tokens' => ['input_text_min', 'input_text_max', 'input_image', 'output', 'reasoning_min', 'reasoning_max'],
-            'provider_min_nanodollars',
-            'provider_max_nanodollars',
-            'user_min_nanodollars',
-            'user_max_nanodollars',
-            'user_min_usd',
-            'user_max_usd',
-            'user_min_display',
-            'user_max_display',
-            'rates_snapshot',
+        ->assertJson([
+            'provider_min_nanodollars' => 46_540_000,
+            'provider_max_nanodollars' => 69_060_000,
+            'user_min_nanodollars' => 58_175_000,
+            'user_max_nanodollars' => 86_325_000,
+            'user_min_usd' => '0.058175000',
+            'user_max_usd' => '0.086325000',
         ]);
-
-    expect($response->json('user_max_nanodollars'))->toBeGreaterThan($response->json('provider_max_nanodollars'));
 });
 
 it('validates estimate inputs and returns 503 when pricing provider fails', function (): void {
@@ -65,7 +59,11 @@ it('validates estimate inputs and returns 503 when pricing provider fails', func
         ->assertJsonValidationErrors(['size', 'quality', 'reference_images', 'reference_images.0', 'prompt']);
 
     Cache::forget(PixelforgeProvider::PRICING_CACHE_KEY);
-    config(['services.pixelforge.api_key' => '']);
+    Http::fake([
+        'https://pixelforge.promptedit.dev/v1/pricing' => Http::response([
+            'error' => ['code' => 'overloaded', 'message' => 'Upstream overloaded'],
+        ], 503),
+    ]);
 
     $this->actingAs($user)->postJson(route('generations.estimate'), [
         'prompt' => 'Valid prompt',

@@ -38,9 +38,9 @@ it('resolves PixelforgeProvider from the container by default', function (): voi
     expect(app(ImageGenerationProvider::class))->toBeInstanceOf(PixelforgeProvider::class);
 });
 
-it('fetches and caches pricing from GET /v1/pricing', function (): void {
+it('fetches and caches public pricing from GET /v1/pricing without requiring an API key', function (): void {
     Cache::forget(PixelforgeProvider::PRICING_CACHE_KEY);
-    config(['services.pixelforge.api_key' => 'test-key']);
+    config(['services.pixelforge.api_key' => '']);
 
     Http::fake([
         'https://pixelforge.promptedit.dev/v1/pricing' => Http::response(validPricingPayload(), 200),
@@ -56,15 +56,6 @@ it('fetches and caches pricing from GET /v1/pricing', function (): void {
         ->and($second->charactersPerTextToken)->toBe(4);
 
     Http::assertSentCount(1);
-});
-
-it('throws ProviderException when API key is missing', function (): void {
-    Cache::forget(PixelforgeProvider::PRICING_CACHE_KEY);
-    config(['services.pixelforge.api_key' => '']);
-
-    $provider = app(ImageGenerationProvider::class);
-
-    expect(fn () => $provider->getPricing())->toThrow(ProviderException::class, 'Pixelforge API key is not configured.');
 });
 
 it('throws ProviderException without caching when Pixelforge pricing fails', function (): void {
@@ -97,14 +88,23 @@ it('wraps ConnectionException in ProviderException', function (): void {
     expect(fn () => $provider->getPricing())->toThrow(ProviderException::class, 'Could not connect to Pixelforge pricing endpoint.');
 });
 
-it('wraps malformed pricing payloads in ProviderException', function (): void {
+it('wraps malformed pricing payloads and scalar JSON responses in ProviderException', function (): void {
     Cache::forget(PixelforgeProvider::PRICING_CACHE_KEY);
-    config(['services.pixelforge.api_key' => 'test-key']);
 
-    Http::fake([
-        'https://pixelforge.promptedit.dev/v1/pricing' => Http::response(['rates' => []], 200),
-    ]);
+    Http::fakeSequence('https://pixelforge.promptedit.dev/v1/pricing')
+        ->push(['rates' => []], 200)
+        ->push('"ok"', 200)
+        ->push(array_replace_recursive(validPricingPayload(), [
+            'tokens' => ['reasoning' => ['low' => ['min' => 500, 'max' => 50]]],
+        ]), 200);
 
     $provider = app(ImageGenerationProvider::class);
+
     expect(fn () => $provider->getPricing())->toThrow(ProviderException::class, 'Malformed pricing payload');
+
+    Cache::forget(PixelforgeProvider::PRICING_CACHE_KEY);
+    expect(fn () => $provider->getPricing())->toThrow(ProviderException::class, 'Malformed pricing payload: expected JSON object.');
+
+    Cache::forget(PixelforgeProvider::PRICING_CACHE_KEY);
+    expect(fn () => $provider->getPricing())->toThrow(ProviderException::class, 'invalid reasoning range');
 });

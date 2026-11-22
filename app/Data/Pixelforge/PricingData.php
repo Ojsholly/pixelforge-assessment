@@ -53,27 +53,35 @@ final readonly class PricingData
             }
         }
 
-        /** @var array{input_text_tokens: string, input_image_tokens: string, output_tokens: string, reasoning_tokens: string} $rates */
-        $rates = $payload['rates'];
-        /** @var array{characters_per_text_token: int, text_token_variance: float|int, per_reference_image: int, output: array<string, array<string, int>>, reasoning: array<string, array{min: int, max: int}>} $tokens */
-        $tokens = $payload['tokens'];
-
-        $variance = (float) $tokens['text_token_variance'];
+        $variance = (float) $payload['tokens']['text_token_variance'];
         if ($variance < 0.0 || $variance > 1.0) {
             throw new InvalidArgumentException('Malformed pricing payload: text_token_variance must be between 0 and 1.');
         }
 
         foreach (ImageQuality::cases() as $quality) {
-            if (! isset($tokens['reasoning'][$quality->value]['min'], $tokens['reasoning'][$quality->value]['max'])) {
+            $range = $payload['tokens']['reasoning'][$quality->value] ?? null;
+
+            if (! is_array($range) || ! isset($range['min'], $range['max'])) {
                 throw new InvalidArgumentException("Malformed pricing payload: missing reasoning range for [{$quality->value}].");
             }
 
+            if ((int) $range['min'] < 0 || (int) $range['max'] < (int) $range['min']) {
+                throw new InvalidArgumentException("Malformed pricing payload: invalid reasoning range for [{$quality->value}].");
+            }
+
             foreach (ImageSize::cases() as $size) {
-                if (! isset($tokens['output'][$quality->value][$size->value])) {
-                    throw new InvalidArgumentException("Malformed pricing payload: missing output tokens for [{$quality->value}] / [{$size->value}].");
+                $output = $payload['tokens']['output'][$quality->value][$size->value] ?? null;
+
+                if ($output === null || (int) $output < 0) {
+                    throw new InvalidArgumentException("Malformed pricing payload: invalid output tokens for [{$quality->value}] / [{$size->value}].");
                 }
             }
         }
+
+        /** @var array{input_text_tokens: string, input_image_tokens: string, output_tokens: string, reasoning_tokens: string} $rates */
+        $rates = $payload['rates'];
+        /** @var array{characters_per_text_token: int, text_token_variance: float|int, per_reference_image: int, output: array<string, array<string, int>>, reasoning: array<string, array{min: int, max: int}>} $tokens */
+        $tokens = $payload['tokens'];
 
         return new self(
             charactersPerTextToken: (int) $tokens['characters_per_text_token'],

@@ -26,7 +26,7 @@ final class PixelforgeProvider implements ImageGenerationProvider
     {
         return Cache::remember(self::PRICING_CACHE_KEY, now()->addMinutes(5), function (): PricingData {
             try {
-                $response = $this->client()
+                $response = $this->publicClient()
                     ->retry(2, 200, fn (Throwable $exception): bool => $exception instanceof ConnectionException
                         || ($exception instanceof RequestException && $exception->response->serverError()), throw: false)
                     ->get('/pricing');
@@ -43,10 +43,18 @@ final class PixelforgeProvider implements ImageGenerationProvider
                 throw $this->toProviderException($response, 'Failed to fetch Pixelforge pricing.');
             }
 
-            /** @var array<string, mixed> $payload */
-            $payload = $response->json() ?? [];
+            $payload = $response->json();
+
+            if (! is_array($payload)) {
+                throw new ProviderException(
+                    message: 'Malformed pricing payload: expected JSON object.',
+                    statusCode: 502,
+                    errorCode: 'malformed_response',
+                );
+            }
 
             try {
+                /** @var array<string, mixed> $payload */
                 return PricingData::fromArray($payload);
             } catch (InvalidArgumentException $invalidArgumentException) {
                 throw new ProviderException(
@@ -79,22 +87,12 @@ final class PixelforgeProvider implements ImageGenerationProvider
         throw new LogicException('verifyWebhookSignature() will be implemented in Epic 04.');
     }
 
-    private function client(): PendingRequest
+    private function publicClient(): PendingRequest
     {
         /** @var string $baseUrl */
         $baseUrl = config('services.pixelforge.base_url', 'https://pixelforge.promptedit.dev/v1');
-        $apiKey = (string) config('services.pixelforge.api_key', '');
-
-        if ($apiKey === '') {
-            throw new ProviderException(
-                message: 'Pixelforge API key is not configured.',
-                statusCode: 500,
-                errorCode: 'missing_api_key',
-            );
-        }
 
         return Http::baseUrl(rtrim($baseUrl, '/'))
-            ->withToken($apiKey)
             ->acceptJson()
             ->timeout(15);
     }
