@@ -1,14 +1,7 @@
 <script setup lang="ts">
-import {
-    Head,
-    Link,
-    router,
-    setLayoutProps,
-    usePage,
-    usePoll,
-} from '@inertiajs/vue3';
+import { Head, Link, router, setLayoutProps, usePage } from '@inertiajs/vue3';
 import { AlertCircle, ArrowLeft, ImageOff, RefreshCw } from '@lucide/vue';
-import { computed, watch } from 'vue';
+import { computed, onMounted, onUnmounted, watch } from 'vue';
 import GenerationStatusBadge from '@/components/GenerationStatusBadge.vue';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -37,6 +30,7 @@ type GenerationDetail = {
     estimated_max_display: string;
     actual_user_cost_display: string | null;
     actual_provider_cost_display: string | null;
+    wallet_net_debit_display: string;
     is_free: boolean;
     image_url: string | null;
     image_expired: boolean;
@@ -77,23 +71,31 @@ const providerError = computed(
 
 const hasPending = computed(() => props.generation.is_pending);
 
-const { start, stop } = usePoll(
-    4000,
-    { only: ['generation'] },
-    { autoStart: false },
-);
+let poll:
+    | { start: () => void; stop: () => void; destroy: () => void }
+    | undefined;
 
-watch(
-    hasPending,
-    (pending) => {
-        if (pending) {
-            start();
-        } else {
-            stop();
-        }
-    },
-    { immediate: true },
-);
+// Poll registration is client-only: creating it inside onMounted keeps SSR
+// renders from accumulating registrations on the render server.
+onMounted(() => {
+    poll = router.poll(4000, { only: ['generation'] });
+
+    if (hasPending.value) {
+        poll.start();
+    }
+});
+
+watch(hasPending, (pending) => {
+    if (pending) {
+        poll?.start();
+    } else {
+        poll?.stop();
+    }
+});
+
+onUnmounted(() => {
+    poll?.destroy();
+});
 
 function refreshGeneration(): void {
     router.post(props.generation.refresh_url, {}, { preserveScroll: true });
@@ -338,7 +340,7 @@ const rateRows = computed(() => {
                             </div>
                             <div class="flex justify-between gap-4">
                                 <dt class="text-muted-foreground">
-                                    Charged to you
+                                    Billed cost
                                 </dt>
                                 <dd class="font-medium">
                                     <template v-if="generation.is_free"
@@ -353,6 +355,14 @@ const rateRows = computed(() => {
                                         }}</template
                                     >
                                     <template v-else>Pending</template>
+                                </dd>
+                            </div>
+                            <div class="flex justify-between gap-4">
+                                <dt class="text-muted-foreground">
+                                    Charged to wallet
+                                </dt>
+                                <dd class="font-medium">
+                                    {{ generation.wallet_net_debit_display }}
                                 </dd>
                             </div>
                             <div

@@ -3,7 +3,9 @@
 namespace App\Support;
 
 use App\Enums\GenerationStatus;
+use App\Enums\TransactionDirection;
 use App\Models\Generation;
+use App\Models\Transaction;
 use App\Models\User;
 
 final class GenerationPresenter
@@ -52,6 +54,7 @@ final class GenerationPresenter
             'actual_provider_cost_display' => $generation->actual_provider_cost !== null
                 ? Money::formatDisplay($generation->actual_provider_cost)
                 : null,
+            'wallet_net_debit_display' => Money::formatDisplay($this->walletNetDebit($generation)),
             'provider_id' => $generation->provider_id,
             'reference_images' => $generation->reference_images ?? [],
             'estimated_tokens' => $generation->estimated_tokens,
@@ -84,6 +87,24 @@ final class GenerationPresenter
             'succeeded' => (int) ($counts[GenerationStatus::Succeeded->value] ?? 0),
             'failed' => (int) ($counts[GenerationStatus::Failed->value] ?? 0),
         ];
+    }
+
+    /**
+     * Actual wallet movement for a generation: holds + captures − releases.
+     * Distinct from actual_user_cost, which is the billed cost and can exceed
+     * what the wallet was debited (unreserved or partially covered shortfalls).
+     */
+    private function walletNetDebit(Generation $generation): int
+    {
+        return $generation->transactions()
+            ->select(['direction', 'amount'])
+            ->get()
+            ->reduce(
+                fn (int $net, Transaction $transaction): int => $transaction->direction === TransactionDirection::Debit
+                    ? $net + $transaction->amount
+                    : $net - $transaction->amount,
+                0,
+            );
     }
 
     /**

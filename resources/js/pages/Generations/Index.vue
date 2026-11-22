@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { Head, Link, router, usePage, usePoll } from '@inertiajs/vue3';
+import { Head, Link, router, usePage } from '@inertiajs/vue3';
 import { AlertCircle, ImageOff, Plus, RefreshCw } from '@lucide/vue';
-import { computed, watch } from 'vue';
+import { computed, onMounted, onUnmounted, watch } from 'vue';
 import GenerationStatusBadge from '@/components/GenerationStatusBadge.vue';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -84,23 +84,37 @@ const hasPending = computed(() =>
     props.generations.data.some((generation) => generation.is_pending),
 );
 
-const { start, stop } = usePoll(
-    4000,
-    { only: ['generations', 'counts'] },
-    { autoStart: false },
+const activeTabLabel = computed(
+    () =>
+        tabs.value.find((tab) => tab.key === props.filters.status)?.label ??
+        'All',
 );
 
-watch(
-    hasPending,
-    (pending) => {
-        if (pending) {
-            start();
-        } else {
-            stop();
-        }
-    },
-    { immediate: true },
-);
+let poll:
+    | { start: () => void; stop: () => void; destroy: () => void }
+    | undefined;
+
+// Poll registration is client-only: creating it inside onMounted keeps SSR
+// renders from accumulating registrations on the render server.
+onMounted(() => {
+    poll = router.poll(4000, { only: ['generations', 'counts'] });
+
+    if (hasPending.value) {
+        poll.start();
+    }
+});
+
+watch(hasPending, (pending) => {
+    if (pending) {
+        poll?.start();
+    } else {
+        poll?.stop();
+    }
+});
+
+onUnmounted(() => {
+    poll?.destroy();
+});
 
 function filterHref(status: string | null): string {
     return status === null ? index.url() : index.url({ query: { status } });
@@ -178,14 +192,27 @@ function paginationLabel(label: string): string {
         >
             <ImageOff class="size-8 text-muted-foreground" />
             <div class="flex flex-col gap-1">
-                <p class="font-medium">No generations yet</p>
-                <p class="text-sm text-muted-foreground">
-                    Images you generate will appear here with live status
-                    updates.
-                </p>
+                <template v-if="counts.total === 0">
+                    <p class="font-medium">No generations yet</p>
+                    <p class="text-sm text-muted-foreground">
+                        Images you generate will appear here with live status
+                        updates.
+                    </p>
+                </template>
+                <template v-else>
+                    <p class="font-medium">
+                        No {{ activeTabLabel.toLowerCase() }} generations
+                    </p>
+                    <p class="text-sm text-muted-foreground">
+                        Try a different status filter, or create a new image.
+                    </p>
+                </template>
             </div>
             <Button as-child variant="outline">
-                <Link :href="create()">Create your first image</Link>
+                <Link v-if="counts.total === 0" :href="create()"
+                    >Create your first image</Link
+                >
+                <Link v-else :href="index()">View all generations</Link>
             </Button>
         </div>
 

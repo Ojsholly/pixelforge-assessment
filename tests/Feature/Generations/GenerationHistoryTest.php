@@ -1,8 +1,11 @@
 <?php
 
+use App\Enums\TransactionDirection;
 use App\Enums\TransactionType;
 use App\Models\Generation;
+use App\Models\Transaction;
 use App\Models\User;
+use App\States\Generation\Processing;
 use App\States\Generation\Succeeded;
 use Illuminate\Support\Facades\Http;
 
@@ -211,6 +214,88 @@ it('manually refreshes a pending generation from the provider idempotently', fun
 
     expect($generation->refresh()->status)->toBeInstanceOf(Succeeded::class)
         ->and($generation->transactions()->count())->toBe($transactionsBefore);
+});
+
+it('rejects a succeeded provider response missing usage without settling', function (): void {
+    config(['services.pixelforge.api_key' => 'test-key']);
+
+    $user = User::factory()->create();
+    $generation = Generation::factory()->processing()->for($user)->create([
+        'provider_id' => 'gen_ref_2',
+        'reserved_amount' => 86_337_500,
+    ]);
+
+    Http::fake([
+        'https://pixelforge.promptedit.dev/v1/generations/gen_ref_2' => Http::response([
+            'id' => 'gen_ref_2',
+            'status' => 'succeeded',
+            'rates' => $generation->rates_snapshot,
+            'completed_at' => '2026-11-22T12:00:15Z',
+        ], 200),
+    ]);
+
+    $this->actingAs($user)
+        ->from(route('generations.show', $generation))
+        ->post(route('generations.refresh', $generation))
+        ->assertRedirect(route('generations.show', $generation))
+        ->assertSessionHasErrors('provider');
+
+    expect($generation->refresh()->status)->toBeInstanceOf(Processing::class)
+        ->and($generation->reserved_amount)->toBe(86_337_500)
+        ->and($generation->transactions()->count())->toBe(0);
+});
+
+it('reports the net wallet debit separately from the billed cost', function (): void {
+    $user = User::factory()->create();
+    $wallet = $user->wallet()->firstOrFail();
+
+    $addTransaction = function (Generation $generation, TransactionDirection $direction, TransactionType $type, int $amount) use ($wallet): void {
+        Transaction::forceCreate([
+            'wallet_id' => $wallet->id,
+            'transactionable_type' => $generation->getMorphClass(),
+            'transactionable_id' => $generation->id,
+            'direction' => $direction,
+            'type' => $type,
+            'amount' => $amount,
+            'balance_after' => 0,
+            'description' => "{$type->value} test row",
+        ]);
+    };
+
+    $unreserved = Generation::factory()->succeeded()->for($user)->create([
+        'actual_user_cost' => 70_700_000,
+    ]);
+
+    $covered = Generation::factory()->succeeded()->for($user)->create([
+        'actual_user_cost' => 70_700_000,
+    ]);
+    $addTransaction($covered, TransactionDirection::Debit, TransactionType::Hold, 86_337_500);
+    $addTransaction($covered, TransactionDirection::Credit, TransactionType::Release, 15_637_500);
+
+    $partial = Generation::factory()->succeeded()->for($user)->create([
+        'actual_user_cost' => 70_700_000,
+    ]);
+    $addTransaction($partial, TransactionDirection::Debit, TransactionType::Hold, 10_000_000);
+    $addTransaction($partial, TransactionDirection::Debit, TransactionType::Capture, 5_000_000);
+
+    $this->actingAs($user)->get(route('generations.show', $unreserved))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('generation.actual_user_cost_display', '$0.0707')
+            ->where('generation.wallet_net_debit_display', '$0.00')
+        );
+
+    $this->actingAs($user)->get(route('generations.show', $covered))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('generation.wallet_net_debit_display', '$0.0707')
+        );
+
+    $this->actingAs($user)->get(route('generations.show', $partial))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('generation.wallet_net_debit_display', '$0.015')
+        );
 });
 
 it('renders the dashboard with wallet balance, counts, and recent generations', function (): void {
