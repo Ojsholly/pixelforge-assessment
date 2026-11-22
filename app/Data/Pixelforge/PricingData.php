@@ -2,6 +2,8 @@
 
 namespace App\Data\Pixelforge;
 
+use App\Enums\ImageQuality;
+use App\Enums\ImageSize;
 use InvalidArgumentException;
 
 final readonly class PricingData
@@ -59,5 +61,30 @@ final readonly class PricingData
             outputTokens: $tokens['output'],
             reasoningTokens: $tokens['reasoning'],
         );
+    }
+
+    public function outputTokensFor(ImageQuality $quality, ImageSize $size): int
+    {
+        $tokens = $this->outputTokens[$quality->value][$size->value] ?? null;
+
+        if ($tokens === null) {
+            throw new InvalidArgumentException("Missing output token count for [{$quality->value}] / [{$size->value}].");
+        }
+
+        return $tokens;
+    }
+
+    /**
+     * @return array{min: int, max: int}
+     */
+    public function reasoningRangeFor(ImageQuality $quality): array
+    {
+        $range = $this->reasoningTokens[$quality->value] ?? null;
+
+        if ($range === null) {
+            throw new InvalidArgumentException("Missing reasoning token range for [{$quality->value}].");
+        }
+
+        return $range;
     }
 }

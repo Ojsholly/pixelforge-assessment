@@ -5,7 +5,14 @@
 Pixelforge Image Studio (Laravel 13, PHP 8.4, Vue 3, Inertia v3, Wayfinder, Tailwind CSS v4, PostgreSQL 17).
 Manages asynchronous AI image generations, exact integer-nanodollar billing (+25% markup), signed idempotent webhooks, and wallet/ledger accounting.
 
-## Epic 01 — Foundation (Current PR)
+## Epic 02 — Pricing Pipeline (Current PR)
+
+- **`ImageGenerationProvider` Binding (`AppServiceProvider`):** Resolves `PixelforgeProvider` from `config('services.image_provider.driver')` (default `pixelforge`). Remaining provider methods (`createGeneration`, `getGeneration`, `getUsage`, `verifyWebhookSignature`) intentionally throw `LogicException` until Epics 03, 04, and 07.
+- **`PixelforgeProvider::getPricing()`:** Fetches `GET /v1/pricing` with retry on transient `ConnectionException`/5xx, caches for 5 minutes (`pixelforge:pricing`), and hydrates `PricingData`.
+- **`PricingCalculator` & `CostEstimateData`:** Uses `mb_strlen(..., 'UTF-8')` for character-based token estimation, computes `intdiv($tokens * $ratePerMillionNanodollars, 1_000_000)` in integer nanodollars (zero floats), and applies exact half-up 25% markup (`Money::applyMarkup`).
+- **Live Estimate Endpoint:** `POST /generate/estimate` (`EstimateGenerationController`, `EstimateGenerationRequest`, throttled `60,1`).
+
+## Epic 01 — Foundation (Merged)
 
 - **Money Representation (`App\Support\Money`):** All monetary values are stored as signed `BIGINT` **nanodollars** ($10^{-9}$ USD), matching Pixelforge's 9-decimal USD strings (`"0.046125000"`) with zero floating-point arithmetic.
 - **Wallets & Polymorphic Ledger:**
