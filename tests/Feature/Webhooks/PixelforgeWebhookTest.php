@@ -1,5 +1,6 @@
 <?php
 
+use App\Contracts\ImageGenerationProvider;
 use App\Enums\TransactionType;
 use App\Models\Generation;
 use App\Models\Transaction;
@@ -11,6 +12,7 @@ use App\States\Generation\Queued;
 use App\States\Generation\Succeeded;
 use App\Support\Money;
 use Illuminate\Support\Facades\Http;
+use RuntimeException;
 
 function signWebhookPayload(string $rawBody, string $secret = 'whsec_test_secret', ?int $timestamp = null): string
 {
@@ -440,6 +442,33 @@ it('skips transient provider errors and only fails generations past the hard max
     Http::fake([
         'https://pixelforge.promptedit.dev/v1/generations/*' => Http::response('Service unavailable', 503),
     ]);
+
+    $this->artisan('generations:reconcile-stale')
+        ->expectsOutput('Reconciled 1 stale generation(s).')
+        ->assertSuccessful();
+
+    expect($recent->refresh()->status)->toBeInstanceOf(Queued::class)
+        ->and($ancient->refresh()->status)->toBeInstanceOf(Failed::class)
+        ->and($ancient->error_code)->toBe('reconciliation_unreachable');
+});
+
+it('releases expired holds after unexpected polling failures', function (): void {
+    $recent = Generation::factory()->submitted()->create([
+        'provider_id' => 'gen_unexpected_recent',
+        'created_at' => now()->subHours(2),
+        'updated_at' => now()->subMinutes(5),
+    ]);
+
+    $ancient = Generation::factory()->submitted()->create([
+        'provider_id' => 'gen_unexpected_ancient',
+        'created_at' => now()->subDays(2),
+        'updated_at' => now()->subMinutes(5),
+    ]);
+
+    // A non-ProviderException escaping getGeneration must still honor the hard cap.
+    $this->mock(ImageGenerationProvider::class)
+        ->shouldReceive('getGeneration')
+        ->andThrow(new RuntimeException('unexpected poll failure'));
 
     $this->artisan('generations:reconcile-stale')
         ->expectsOutput('Reconciled 1 stale generation(s).')
