@@ -6,7 +6,9 @@ use App\Enums\WebhookEventType;
 use Carbon\CarbonImmutable;
 use Database\Factories\WebhookEventFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\MassPrunable;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -31,7 +33,7 @@ use Illuminate\Database\Eloquent\Model;
 class WebhookEvent extends Model
 {
     /** @use HasFactory<WebhookEventFactory> */
-    use HasFactory;
+    use HasFactory, MassPrunable;
 
     /**
      * @return array<string, string>
@@ -48,5 +50,18 @@ class WebhookEvent extends Model
     public function resolvedEventType(): ?WebhookEventType
     {
         return WebhookEventType::tryFrom($this->event_type);
+    }
+
+    /**
+     * Payloads contain prompt text and image URLs; retain processed events only
+     * long enough to serve their idempotency and audit purpose.
+     *
+     * @return Builder<static>
+     */
+    public function prunable(): Builder
+    {
+        return static::query()
+            ->whereNotNull('processed_at')
+            ->where('created_at', '<=', now()->subDays(30));
     }
 }

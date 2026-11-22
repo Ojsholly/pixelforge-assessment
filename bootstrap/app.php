@@ -19,6 +19,7 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->encryptCookies(except: ['appearance', 'sidebar_state']);
+        $middleware->validateCsrfTokens(except: ['webhooks/pixelforge']);
 
         $middleware->web(append: [
             HandleAppearance::class,
@@ -28,11 +29,11 @@ return Application::configure(basePath: dirname(__DIR__))
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(
-            fn (Request $request): bool => $request->is('api/*') || $request->expectsJson(),
+            fn (Request $request): bool => $request->is('api/*', 'webhooks/*') || $request->expectsJson(),
         );
 
         $exceptions->render(function (ProviderException $exception, Request $request): JsonResponse|RedirectResponse {
-            if ($request->expectsJson()) {
+            if ($request->is('webhooks/*') || $request->expectsJson()) {
                 return response()->json([
                     'message' => $exception->userMessage(),
                     'error_code' => $exception->errorCode,

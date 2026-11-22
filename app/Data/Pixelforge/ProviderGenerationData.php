@@ -3,7 +3,9 @@
 namespace App\Data\Pixelforge;
 
 use App\Enums\GenerationStatus;
+use Carbon\CarbonImmutable;
 use InvalidArgumentException;
+use Throwable;
 
 final readonly class ProviderGenerationData
 {
@@ -40,11 +42,19 @@ final readonly class ProviderGenerationData
             throw new InvalidArgumentException('Malformed provider generation payload: missing id, status, or rates.');
         }
 
+        if (! is_scalar($payload['id']) || ! is_scalar($payload['status'])) {
+            throw new InvalidArgumentException('Malformed provider generation payload: invalid id or status.');
+        }
+
         $statusString = (string) $payload['status'];
         $status = GenerationStatus::tryFrom($statusString);
 
         if ($status === null) {
             throw new InvalidArgumentException("Unsupported provider generation status: [{$statusString}].");
+        }
+
+        if (isset($payload['image_url']) && ! is_scalar($payload['image_url'])) {
+            throw new InvalidArgumentException('Malformed provider generation payload: invalid image_url.');
         }
 
         /** @var array{input_text_tokens: string, input_image_tokens: string, output_tokens: string, reasoning_tokens: string} $rates */
@@ -62,13 +72,36 @@ final readonly class ProviderGenerationData
             rates: $rates,
             metadata: $metadata,
             imageUrl: isset($payload['image_url']) ? (string) $payload['image_url'] : null,
-            imageUrlExpiresAt: isset($payload['image_url_expires_at']) ? (string) $payload['image_url_expires_at'] : null,
+            imageUrlExpiresAt: self::timestamp($payload['image_url_expires_at'] ?? null),
             usage: $usage !== null ? ProviderUsageData::fromArray($usage) : null,
-            errorCode: isset($error['code']) ? (string) $error['code'] : null,
-            errorMessage: isset($error['message']) ? (string) $error['message'] : null,
-            createdAt: isset($payload['created_at']) ? (string) $payload['created_at'] : null,
-            startedAt: isset($payload['started_at']) ? (string) $payload['started_at'] : null,
-            completedAt: isset($payload['completed_at']) ? (string) $payload['completed_at'] : null,
+            errorCode: self::optionalString($error['code'] ?? null),
+            errorMessage: self::optionalString($error['message'] ?? null),
+            createdAt: self::timestamp($payload['created_at'] ?? null),
+            startedAt: self::timestamp($payload['started_at'] ?? null),
+            completedAt: self::timestamp($payload['completed_at'] ?? null),
         );
+    }
+
+    /**
+     * Provider timestamps are informational only; unparseable values are
+     * discarded so a malformed optional timestamp can neither poison a webhook
+     * event mid-transaction nor fail an already-accepted generation.
+     */
+    private static function timestamp(mixed $value): ?string
+    {
+        if ($value === null || ! is_scalar($value)) {
+            return null;
+        }
+
+        try {
+            return CarbonImmutable::parse((string) $value)->toIso8601String();
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    private static function optionalString(mixed $value): ?string
+    {
+        return is_scalar($value) ? (string) $value : null;
     }
 }
