@@ -22,6 +22,15 @@ return new class extends Migration
         if (DB::getDriverName() === 'pgsql') {
             DB::statement('ALTER TABLE wallets ADD CONSTRAINT wallets_balance_non_negative CHECK (balance >= 0)');
         }
+
+        $now = now()->toDateTimeString();
+
+        DB::insert(
+            'INSERT INTO wallets (user_id, balance, created_at, updated_at)
+             SELECT id, 0, ?, ? FROM users
+             WHERE NOT EXISTS (SELECT 1 FROM wallets WHERE wallets.user_id = users.id)',
+            [$now, $now],
+        );
     }
 
     /**

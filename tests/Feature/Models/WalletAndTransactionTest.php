@@ -5,8 +5,11 @@ use App\Enums\TransactionType;
 use App\Models\Generation;
 use App\Models\Transaction;
 use App\Models\User;
+use App\Models\Wallet;
 use App\Support\Money;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 it('provisions a zero-balance wallet when a user is created', function (): void {
     $response = $this->post('/register', [
@@ -68,4 +71,34 @@ it('enforces owner-only access in GenerationPolicy', function (): void {
         ->and($owner->can('refresh', $generation))->toBeTrue()
         ->and($other->can('view', $generation))->toBeFalse()
         ->and($other->can('refresh', $generation))->toBeFalse();
+});
+
+it('creates wallets and transactions via default factories without colliding with user provisioning', function (): void {
+    $wallet = Wallet::factory()->withBalance(250_000_000)->create();
+    $transaction = Transaction::factory()->create();
+
+    expect($wallet->balance)->toBe(250_000_000)
+        ->and($wallet->user->wallet->is($wallet))->toBeTrue()
+        ->and($transaction->wallet)->not->toBeNull();
+});
+
+it('backfills zero-balance wallets for existing users when the wallet migration runs', function (): void {
+    $userId = DB::table('users')->insertGetId([
+        'name' => 'Legacy User',
+        'email' => 'legacy@example.com',
+        'password' => bcrypt('Password123!'),
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    Schema::dropIfExists('transactions');
+    Schema::dropIfExists('wallets');
+
+    (require database_path('migrations/2026_11_22_000002_create_wallets_table.php'))->up();
+    (require database_path('migrations/2026_11_22_000004_create_transactions_table.php'))->up();
+
+    $legacyUser = User::findOrFail($userId);
+
+    expect($legacyUser->wallet)->not->toBeNull()
+        ->and($legacyUser->wallet->balance)->toBe(0);
 });

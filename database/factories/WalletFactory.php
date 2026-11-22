@@ -17,7 +17,7 @@ class WalletFactory extends Factory
     public function definition(): array
     {
         return [
-            'user_id' => User::factory(),
+            'user_id' => fn (): int => User::withoutEvents(fn (): int => User::factory()->create()->id),
             'balance' => 0,
         ];
     }
