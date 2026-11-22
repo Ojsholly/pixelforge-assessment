@@ -74,7 +74,7 @@ it('creates a generation with idempotency key, metadata, and wallet hold on 202'
 
     Http::assertSent(function (Request $request) use ($generation, $user): bool {
         if (! str_ends_with($request->url(), '/generations')) {
-            return true;
+            return false;
         }
 
         return $request->hasHeader('Idempotency-Key', $generation->idempotency_key)
@@ -198,7 +198,7 @@ it('does not retry 429 concurrency limit and releases hold immediately', functio
     Http::assertSentCount(2);
 });
 
-it('blocks SSRF internal urls including IPv6 brackets and control-only prompts', function (): void {
+it('blocks SSRF internal urls including IPv6 brackets, IPv4-mapped IPv6, and control-only prompts', function (): void {
     $user = User::factory()->create();
 
     $this->actingAs($user)->post(route('generations.store'), [
@@ -209,7 +209,7 @@ it('blocks SSRF internal urls including IPv6 brackets and control-only prompts',
             'http://127.0.0.1/secret.png',
             'http://169.254.169.254/latest/meta-data/',
             'http://[::1]/secret.png',
-            'http://[fd00::1]/secret.png',
+            'http://[::ffff:127.0.0.1]/secret.png',
         ],
     ])->assertSessionHasErrors([
         'prompt',
@@ -220,4 +220,57 @@ it('blocks SSRF internal urls including IPv6 brackets and control-only prompts',
         'reference_images.2',
         'reference_images.3',
     ]);
+});
+
+it('accepts internationalized public reference URLs', function (): void {
+    seedPricingCacheAndKey();
+
+    Http::fake([
+        'https://pixelforge.promptedit.dev/v1/pricing' => Http::response(validPricingPayload(), 200),
+        'https://pixelforge.promptedit.dev/v1/generations' => Http::response([
+            'id' => 'gen_idn_1',
+            'status' => 'queued',
+            'rates' => validPricingPayload()['rates'],
+        ], 202),
+    ]);
+
+    $user = User::factory()->create();
+
+    $this->actingAs($user)->post(route('generations.store'), [
+        'prompt' => 'Test IDN url',
+        'size' => '1024x1024',
+        'quality' => 'medium',
+        'reference_images' => ['https://bücher.de/image.png'],
+    ])->assertRedirect(route('generations.create'))
+        ->assertSessionHasNoErrors();
+});
+
+it('does not allow estimate requests to exhaust the generation submission throttle', function (): void {
+    seedPricingCacheAndKey();
+
+    Http::fake([
+        'https://pixelforge.promptedit.dev/v1/pricing' => Http::response(validPricingPayload(), 200),
+        'https://pixelforge.promptedit.dev/v1/generations' => Http::response([
+            'id' => 'gen_throttle_1',
+            'status' => 'queued',
+            'rates' => validPricingPayload()['rates'],
+        ], 202),
+    ]);
+
+    $user = User::factory()->create();
+
+    for ($i = 0; $i < 31; $i++) {
+        $this->actingAs($user)->postJson(route('generations.estimate'), [
+            'prompt' => 'A sunset',
+            'size' => '1024x1024',
+            'quality' => 'medium',
+        ])->assertOk();
+    }
+
+    $this->actingAs($user)->post(route('generations.store'), [
+        'prompt' => 'A sunset',
+        'size' => '1024x1024',
+        'quality' => 'medium',
+    ])->assertRedirect(route('generations.create'))
+        ->assertSessionHas('status');
 });

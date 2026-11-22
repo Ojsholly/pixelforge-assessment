@@ -160,11 +160,13 @@ function removeReferenceImage(index: number): void {
 }
 
 function submit(): void {
+    referenceImages.value = referenceImages.value
+        .map((url) => url.trim())
+        .filter((url) => url !== '');
+
     form.transform((data) => ({
         ...data,
-        reference_images: referenceImages.value
-            .map((url) => url.trim())
-            .filter((url) => url !== ''),
+        reference_images: referenceImages.value,
     })).post(store.url(), {
         preserveScroll: true,
     });
@@ -222,7 +224,13 @@ function submit(): void {
                         <div class="flex flex-col gap-2">
                             <div class="flex items-center justify-between">
                                 <Label for="prompt">Prompt</Label>
-                                <span class="text-xs text-muted-foreground"
+                                <span
+                                    class="text-xs"
+                                    :class="
+                                        unicodeCharCount > 4000
+                                            ? 'font-medium text-destructive'
+                                            : 'text-muted-foreground'
+                                    "
                                     >{{ unicodeCharCount }} / 4000</span
                                 >
                             </div>
@@ -230,7 +238,6 @@ function submit(): void {
                                 id="prompt"
                                 v-model="form.prompt"
                                 rows="4"
-                                maxlength="4000"
                                 placeholder="A serene neon-lit ramen shop in Kyoto during light rain..."
                                 class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                             ></textarea>
@@ -326,7 +333,9 @@ function submit(): void {
                             <Button
                                 type="submit"
                                 :disabled="
-                                    form.processing || unicodeCharCount === 0
+                                    form.processing ||
+                                    unicodeCharCount === 0 ||
+                                    unicodeCharCount > 4000
                                 "
                             >
                                 <Sparkles class="mr-2 size-4" />
