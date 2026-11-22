@@ -83,6 +83,42 @@ it('creates a generation with idempotency key, metadata, and wallet hold on 202'
     });
 });
 
+it('keeps an accepted generation queued when optional response timestamps are malformed', function (): void {
+    seedPricingCacheAndKey();
+
+    $user = User::factory()->create();
+    $wallet = $user->wallet()->firstOrFail();
+    $wallet->balance = 5 * Money::NANODOLLARS_PER_USD;
+    $wallet->save();
+
+    Http::fake([
+        'https://pixelforge.promptedit.dev/v1/pricing' => Http::response(validPricingPayload(), 200),
+        'https://pixelforge.promptedit.dev/v1/generations' => Http::response([
+            'id' => 'gen_accepted_bad_ts',
+            'status' => 'queued',
+            'rates' => validPricingPayload()['rates'],
+            'metadata' => ['local_generation_id' => '1'],
+            'created_at' => '2026-11-22T12:00:00Z',
+            'completed_at' => 'not-a-timestamp',
+        ], 202),
+    ]);
+
+    $response = $this->actingAs($user)->post(route('generations.store'), [
+        'prompt' => 'A neon-lit ramen shop in Kyoto',
+        'size' => '1024x1024',
+        'quality' => 'medium',
+        'reference_images' => [],
+    ]);
+
+    $response->assertRedirect(route('generations.create'));
+
+    $generation = Generation::firstOrFail();
+
+    expect($generation->provider_id)->toBe('gen_accepted_bad_ts')
+        ->and($generation->status)->toBeInstanceOf(Queued::class)
+        ->and($generation->reserved_amount)->toBe($generation->estimated_max_user_cost);
+});
+
 it('transitions to failed and releases hold on 400 content_policy_violation without retrying', function (): void {
     seedPricingCacheAndKey();
 

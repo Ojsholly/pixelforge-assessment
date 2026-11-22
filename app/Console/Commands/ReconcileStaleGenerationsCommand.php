@@ -91,15 +91,11 @@ class ReconcileStaleGenerationsCommand extends Command
                 return $this->failedData($generation, $providerId, 'reconciliation_not_found', 'The provider reports this generation no longer exists.');
             }
 
-            if ($generation->created_at !== null && $generation->created_at->lte($outageCutoff)) {
-                return $this->failedData($generation, $providerId, 'reconciliation_unreachable', 'The provider could not be reached before the maximum generation age.');
-            }
-
-            return null;
+            return $this->unreachableData($generation, $providerId, $outageCutoff);
         } catch (Throwable $throwable) {
             report($throwable);
 
-            return null;
+            return $this->unreachableData($generation, $providerId, $outageCutoff);
         }
 
         if (
@@ -111,6 +107,19 @@ class ReconcileStaleGenerationsCommand extends Command
         }
 
         return $providerData;
+    }
+
+    /**
+     * Transient and unexpected polling failures return null (retry next run)
+     * until the generation exceeds --hard-max-age, which bounds wallet holds.
+     */
+    private function unreachableData(Generation $generation, string $providerId, DateTimeInterface $outageCutoff): ?ProviderGenerationData
+    {
+        if ($generation->created_at === null || $generation->created_at->gt($outageCutoff)) {
+            return null;
+        }
+
+        return $this->failedData($generation, $providerId, 'reconciliation_unreachable', 'The provider could not be reached before the maximum generation age.');
     }
 
     private function failedData(Generation $generation, string $providerId, string $errorCode, string $errorMessage): ProviderGenerationData

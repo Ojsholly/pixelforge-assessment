@@ -385,6 +385,43 @@ it('times out generations the provider still reports as pending past max age', f
         ->and($withinLimit->refresh()->status)->toBeInstanceOf(Processing::class);
 });
 
+it('treats malformed poll responses as transient and fails them only past the hard max age', function (): void {
+    config(['services.pixelforge.api_key' => 'test-key']);
+
+    $recent = Generation::factory()->submitted()->create([
+        'provider_id' => 'gen_malformed_recent',
+        'created_at' => now()->subHours(2),
+        'updated_at' => now()->subMinutes(5),
+    ]);
+
+    $ancient = Generation::factory()->submitted()->create([
+        'provider_id' => 'gen_malformed_ancient',
+        'created_at' => now()->subDays(2),
+        'updated_at' => now()->subMinutes(5),
+    ]);
+
+    Http::fake([
+        'https://pixelforge.promptedit.dev/v1/generations/gen_malformed_recent' => Http::response([
+            'id' => 'gen_malformed_recent',
+            'status' => ['processing'],
+            'rates' => $recent->rates_snapshot,
+        ], 200),
+        'https://pixelforge.promptedit.dev/v1/generations/gen_malformed_ancient' => Http::response([
+            'id' => 'gen_malformed_ancient',
+            'status' => ['processing'],
+            'rates' => $ancient->rates_snapshot,
+        ], 200),
+    ]);
+
+    $this->artisan('generations:reconcile-stale')
+        ->expectsOutput('Reconciled 1 stale generation(s).')
+        ->assertSuccessful();
+
+    expect($recent->refresh()->status)->toBeInstanceOf(Queued::class)
+        ->and($ancient->refresh()->status)->toBeInstanceOf(Failed::class)
+        ->and($ancient->error_code)->toBe('reconciliation_unreachable');
+});
+
 it('skips transient provider errors and only fails generations past the hard max age', function (): void {
     config(['services.pixelforge.api_key' => 'test-key']);
 
@@ -413,7 +450,7 @@ it('skips transient provider errors and only fails generations past the hard max
         ->and($ancient->error_code)->toBe('reconciliation_unreachable');
 });
 
-it('acknowledges webhooks with unparseable timestamps without retrying forever', function (): void {
+it('settles succeeded webhooks despite unparseable optional timestamps', function (): void {
     config(['services.pixelforge.webhook_secret' => 'whsec_test_secret']);
 
     $generation = Generation::factory()->submitted()->create([
@@ -440,7 +477,8 @@ it('acknowledges webhooks with unparseable timestamps without retrying forever',
     ], $rawBody)->assertNoContent();
 
     expect(WebhookEvent::firstWhere('provider_event_id', 'evt_bad_ts')?->processed_at)->not->toBeNull()
-        ->and($generation->refresh()->status)->toBeInstanceOf(Queued::class);
+        ->and($generation->refresh()->status)->toBeInstanceOf(Succeeded::class)
+        ->and($generation->completed_at)->not->toBeNull();
 });
 
 it('rolls back settlement and processed_at together when the state action throws', function (): void {
@@ -476,7 +514,10 @@ it('rolls back settlement and processed_at together when the state action throws
         'HTTP_PIXELFORGE_SIGNATURE' => signWebhookPayload($rawBody),
     ], $rawBody)->assertNotFound();
 
-    expect(WebhookEvent::firstWhere('provider_event_id', 'evt_atomic_1')?->processed_at)->toBeNull()
+    $event = WebhookEvent::firstWhere('provider_event_id', 'evt_atomic_1');
+
+    expect($event)->not->toBeNull()
+        ->and($event->processed_at)->toBeNull()
         ->and($generation->refresh()->status)->toBeInstanceOf(Processing::class)
         ->and(Transaction::count())->toBe(0);
 });
