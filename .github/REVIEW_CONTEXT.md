@@ -5,7 +5,14 @@
 Pixelforge Image Studio (Laravel 13, PHP 8.4, Vue 3, Inertia v3, Wayfinder, Tailwind CSS v4, PostgreSQL 17).
 Manages asynchronous AI image generations, exact integer-nanodollar billing (+25% markup), signed idempotent webhooks, and wallet/ledger accounting.
 
-## Epic 03 — Generation Lifecycle & Create Studio UI (Current PR)
+## Epic 04 — Webhooks, Signature Verification & Idempotency (Current PR)
+
+- **Signature Verification (`PixelforgeProvider::verifyWebhookSignature`):** Parses `Pixelforge-Signature` (`t=<ts>,v1=<hex>`), enforces a 300s replay window, and uses constant-time `hash_equals` on `"{$timestamp}.{$rawPayload}"` via PHP 8.4 `array_any`.
+- **CSRF & Auth Exemption (`bootstrap/app.php`, `routes/web.php`):** `POST /webhooks/pixelforge` is outside `auth` middleware and excluded from CSRF verification.
+- **Crash-Safe Idempotency (`PixelforgeWebhookController`):** Uses `insertOrIgnore` on `webhook_events.provider_event_id` (`UNIQUE`), locks the `WebhookEvent` row inside `DB::transaction`, skips if `processed_at !== null`, matches `Generation` by `provider_id` or `metadata.local_generation_id`, calls `ApplyGenerationStateAction`, and sets `processed_at` in the same transaction. Unknown events, `ping`, and orphan events are preserved and acknowledged with `204`.
+- **Stale Reconciliation (`ReconcileStaleGenerationsCommand` + `routes/console.php`):** Scheduled every 5 minutes (`withoutOverlapping()`) to poll `GET /v1/generations/{id}` for stale `queued`/`processing` rows using `rescue()` per item.
+
+## Epic 03 — Generation Lifecycle & Create Studio UI (Merged)
 
 - **Centralized Error Handling (`bootstrap/app.php` + `ProviderException`):** `ProviderException` is rendered centrally in `bootstrap/app.php` (JSON `{ message, error_code }` for `expectsJson()`, or `back()->withErrors(['provider' => ...])` for Inertia) with structured `context()`. Controllers have zero `try/catch` blocks.
 - **Two-Transaction Boundary (`CreateGenerationAction`):** TX1 locks `wallets`, pre-creates `Generation` (`status: Queued`, `idempotency_key`), and reserves `estimated_max_user_cost` if funded *before* calling `POST /v1/generations` (so racing webhooks match via `metadata.local_generation_id`). Outbound HTTP retries `503`/timeouts with the same `Idempotency-Key`. TX2 reconciles `202` or transitions to `Failed` + releases 100% of hold on error.

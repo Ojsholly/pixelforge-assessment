@@ -135,7 +135,37 @@ final class PixelforgeProvider implements ImageGenerationProvider
 
     public function verifyWebhookSignature(string $rawPayload, ?string $signatureHeader, int $toleranceSeconds = 300): bool
     {
-        throw new LogicException('verifyWebhookSignature() will be implemented in Epic 04.');
+        $secret = (string) config('services.pixelforge.webhook_secret', '');
+
+        if ($secret === '' || $signatureHeader === null || trim($signatureHeader) === '') {
+            return false;
+        }
+
+        $timestamp = null;
+        $signatures = [];
+
+        foreach (explode(',', $signatureHeader) as $part) {
+            $segments = explode('=', trim($part), 2);
+            if (count($segments) !== 2) {
+                continue;
+            }
+
+            [$key, $value] = $segments;
+
+            if ($key === 't' && ctype_digit($value)) {
+                $timestamp = (int) $value;
+            } elseif ($key === 'v1' && preg_match('/^[0-9a-f]{64}$/i', $value) === 1) {
+                $signatures[] = strtolower($value);
+            }
+        }
+
+        if ($timestamp === null || $signatures === [] || abs(time() - $timestamp) > $toleranceSeconds) {
+            return false;
+        }
+
+        $expected = hash_hmac('sha256', "{$timestamp}.{$rawPayload}", $secret);
+
+        return array_any($signatures, fn (string $signature): bool => hash_equals($expected, $signature));
     }
 
     private function publicClient(): PendingRequest
