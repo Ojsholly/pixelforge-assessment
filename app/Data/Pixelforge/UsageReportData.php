@@ -32,7 +32,7 @@ final readonly class UsageReportData
         return new self(
             startDate: (string) $payload['start_date'],
             endDate: (string) $payload['end_date'],
-            days: array_map(fn (array $day): UsageDayData => UsageDayData::fromArray($day), $rawDays),
+            days: array_map(UsageDayData::fromArray(...), $rawDays),
             totalGenerations: (int) ($total['generations'] ?? 0),
             totalCostUsd: $totalCostUsd,
             totalCostNanodollars: Money::fromUsdString($totalCostUsd),
