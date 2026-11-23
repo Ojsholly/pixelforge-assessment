@@ -20,6 +20,25 @@ php artisan schedule:work  # scheduler (stale-generation reconciliation)
 Then set the Pixelforge credentials in `.env` — see
 [docs/setup.md](docs/setup.md) for the full guide.
 
+## Demo accounts
+
+Seed accounts exist on the live demo and are created locally by `db:seed`
+(the `SEED_*` env vars ship as defaults in `.env.example` — committed on
+purpose for this take-home; rotate them for any real deployment):
+
+| Account    | Email                     | Password          | Notes                              |
+| ---------- | ------------------------- | ----------------- | ---------------------------------- |
+| Demo user  | `demo@pixelforge.studio`  | `Demo-Studio-2026!` | Pre-verified, $25.00 wallet credit |
+| Demo admin | `admin@pixelforge.studio` | `Demo-Admin-2026!`  | Access to `/admin/report`          |
+
+```bash
+php artisan migrate:fresh --seed   # local: seeds demo user + admin when SEED_* is set
+php artisan db:seed                # adds them to an existing database (skipped if present)
+```
+
+Email verification is skipped for seeded accounts, which matters on
+deployments whose mail driver only logs.
+
 ## Documentation
 
 | Document                                         | Contents                                                                                                   |

@@ -36,6 +36,7 @@ Application-specific settings on top of the Laravel starter kit:
 | `PIXELFORGE_API_KEY`                       | yes      | Bearer key for all provider calls                                                          |
 | `PIXELFORGE_WEBHOOK_SECRET`                | yes      | HMAC secret for `POST /webhooks/pixelforge` signature verification                         |
 | `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` | no       | Opt-in: `AdminUserSeeder` creates this admin on `db:seed`. Never promote an existing user. |
+| `SEED_USER_EMAIL` / `SEED_USER_PASSWORD` / `SEED_USER_NAME` / `SEED_USER_CREDITS_USD` | no | Opt-in: `DemoUserSeeder` creates this pre-verified demo user and optionally funds its wallet (credits in USD, default `0.00`). Skips silently if the email exists. |
 | `QUEUE_CONNECTION`                         | yes      | `database` — webhook processing + reconciliation are queued                                |
 | `CACHE_STORE`                              | yes      | any real store (`database` locally) — pricing is cached 5 min                              |
 
@@ -79,8 +80,17 @@ php artisan user:make-admin you@example.com
 
 or seed one: set `SEED_ADMIN_EMAIL` + `SEED_ADMIN_PASSWORD`, then
 `php artisan db:seed --class=AdminUserSeeder` (`AdminUserSeeder` only creates
-new users and refuses to promote existing ones — `DatabaseSeeder` never calls
-it). The report lives at `/admin/report` (403 for non-admins).
+new users and refuses to promote existing ones). `DatabaseSeeder` calls it
+automatically when the env vars are set. The report lives at `/admin/report`
+(403 for non-admins).
+
+## Demo user
+
+`DemoUserSeeder` (`SEED_USER_*` env vars) creates a pre-verified account and
+optionally funds its wallet via `SEED_USER_CREDITS_USD`. It skips silently if
+the email already exists — re-seeding never resets a password or double-funds
+a wallet. See README's **Demo accounts** for the credentials used on the live
+demo and in `.env.example`.
 
 ## Tests & checks
 
