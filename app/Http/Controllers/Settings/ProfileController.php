@@ -5,10 +5,12 @@ namespace App\Http\Controllers\Settings;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Settings\ProfileDeleteRequest;
 use App\Http\Requests\Settings\ProfileUpdateRequest;
+use App\Models\User;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -52,7 +54,12 @@ class ProfileController extends Controller
 
         Auth::logout();
 
-        $user->delete();
+        // Lock the user row through the delete so a racing generation
+        // submission (which takes the same lock before creating its row and
+        // hold) either lands before the scrub or fails cleanly after it.
+        DB::transaction(function () use ($user): void {
+            User::whereKey($user->getKey())->lockForUpdate()->firstOrFail()->delete();
+        });
 
         $request->session()->invalidate();
         $request->session()->regenerateToken();

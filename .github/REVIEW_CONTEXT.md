@@ -26,6 +26,15 @@ Manages asynchronous AI image generations, exact integer-nanodollar billing (+25
 - **Seeder live-session fix:** `AdminUserSeeder` refuses to run when the email is already registered (points to `php artisan user:make-admin`) instead of `updateOrCreate`-promoting an account that may hold live sessions.
 - **Report UX:** date inputs sync from the applied `range` prop after navigation, `InputError` renders backend validation failures under each input, and an effective-range banner states the window being shown.
 
+### Review fixes (round 3)
+
+- **Deletion/creation race:** `ProfileController::destroy` now locks the `users` row and deletes inside one transaction; `CreateGenerationAction` takes the same `lockForUpdate` in TX1 and `firstOrFail`s — a submission that loses the race aborts 404 before any row, hold, or provider call exists, and one that wins is scrubbed by the deletion it serialized against.
+- **Orphan image redaction:** `handleSucceeded` writes `image_url`/`image_url_expires_at` only when `user_id` is set — late success events on retained generations still record usage/costs and settle the hold on the anonymized wallet, but no media reattaches.
+- **Form state on rejected range:** `Report.vue` moved input syncing from a `watch` on `range` into `router.get`'s `onSuccess`, so a 422 redirect can no longer overwrite in-progress edits with the echoed range.
+- **Rollback guard:** the nullable-`user_id` migration's `down()` counts anonymized rows first and throws actionable guidance instead of a raw NOT-NULL constraint failure.
+- **Ledger subquery scoping:** `netDebitSubquery` joins generations with the succeeded-status and `completed_at` range filters, so the report no longer aggregates ledger rows outside the window.
+- **Metadata fallback hardening:** `findGeneration`'s `local_generation_id` fallback now requires `provider_id IS NULL` — a signed event can only claim a generation never bound to a provider id, closing the recycled-id attach surface.
+
 ## Conventions — .ai/rules (Merged)
 
 - `.ai/rules/` records 16 inferred project conventions across 13 area files plus a generated `index.md` mapping each glob to its rule file.

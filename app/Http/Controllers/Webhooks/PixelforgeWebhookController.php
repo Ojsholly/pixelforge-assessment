@@ -122,8 +122,14 @@ class PixelforgeWebhookController extends Controller
         $metadata = is_array($object['metadata'] ?? null) ? $object['metadata'] : [];
         $localId = $metadata['local_generation_id'] ?? null;
 
+        // The metadata fallback may only claim a generation that was never
+        // bound to a provider id — otherwise a stale event could attach its
+        // result to an unrelated row that recycled the local id.
         if ((is_int($localId) || (is_string($localId) && ctype_digit($localId))) && (int) $localId > 0) {
-            return Generation::query()->find((int) $localId);
+            return Generation::query()
+                ->whereKey((int) $localId)
+                ->whereNull('provider_id')
+                ->first();
         }
 
         return null;

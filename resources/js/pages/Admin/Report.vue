@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Head, router, usePage } from '@inertiajs/vue3';
-import { reactive, watch } from 'vue';
+import { reactive } from 'vue';
 import InputError from '@/components/InputError.vue';
 import { Button } from '@/components/ui/button';
 import {
@@ -84,21 +84,19 @@ const form = reactive({
     end_date: props.range.end_date,
 });
 
-// After a successful apply the range prop echoes the resolved dates —
-// sync the inputs so a cleared or defaulted submission shows the truth.
-watch(
-    () => props.range,
-    (range) => {
-        form.start_date = range.start_date;
-        form.end_date = range.end_date;
-    },
-);
-
 function applyRange(): void {
     router.get(
         report().url,
         { start_date: form.start_date, end_date: form.end_date },
-        { preserveState: true },
+        {
+            preserveState: true,
+            // Sync inputs only after a successful apply — a 422 redirect
+            // would otherwise overwrite valid edits with the echoed range.
+            onSuccess: () => {
+                form.start_date = props.range.start_date;
+                form.end_date = props.range.end_date;
+            },
+        },
     );
 }
 

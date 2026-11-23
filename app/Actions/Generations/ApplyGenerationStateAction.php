@@ -72,10 +72,15 @@ final readonly class ApplyGenerationStateAction
         $generation->actual_usage = $data->usage?->toArray();
         $generation->actual_provider_cost = $providerCost;
         $generation->actual_user_cost = $userCost;
-        $generation->image_url = $data->imageUrl;
-        $generation->image_url_expires_at = $data->imageUrlExpiresAt !== null
-            ? CarbonImmutable::parse($data->imageUrlExpiresAt)
-            : null;
+
+        // Retained generations (owner deleted) keep their scrubbed image
+        // fields — billing data still lands, but no media reattaches.
+        if ($generation->user_id !== null) {
+            $generation->image_url = $data->imageUrl;
+            $generation->image_url_expires_at = $data->imageUrlExpiresAt !== null
+                ? CarbonImmutable::parse($data->imageUrlExpiresAt)
+                : null;
+        }
         $generation->completed_at = $data->completedAt !== null
             ? CarbonImmutable::parse($data->completedAt)
             : CarbonImmutable::now();

@@ -46,6 +46,11 @@ final readonly class CreateGenerationAction
         // the wallet lock and roll back the generation row with them.
         /** @var Generation $generation */
         $generation = DB::transaction(function () use ($user, $prompt, $size, $quality, $referenceImages, $estimate): Generation {
+            // Serialize with account deletion: if the owner row is gone (its
+            // delete held this lock and already committed) abort before the
+            // row, hold, or provider call exist to be orphaned.
+            User::whereKey($user->getKey())->lockForUpdate()->firstOrFail();
+
             $generation = Generation::create([
                 'user_id' => $user->id,
                 'idempotency_key' => (string) Str::uuid(),

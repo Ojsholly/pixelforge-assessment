@@ -9,6 +9,7 @@ use App\Enums\TransactionDirection;
 use App\Models\Generation;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Query\Builder;
+use Illuminate\Database\Query\JoinClause;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -34,7 +35,7 @@ final readonly class UsageReportAction
      */
     public function execute(CarbonImmutable $start, CarbonImmutable $end, UsageReportData $providerUsage): array
     {
-        $netDebit = $this->netDebitSubquery();
+        $netDebit = $this->netDebitSubquery($start, $end);
 
         /** @var Collection<string, object{day: string, generations: int|string, user_spend: int|string, collected: int|string, provider_cost: int|string}> $localDays */
         $localDays = DB::table('generations')
@@ -126,15 +127,21 @@ final readonly class UsageReportAction
     }
 
     /**
-     * Net wallet debit per generation: debits (holds + captures) minus credits
-     * (releases), matching GenerationPresenter's wallet_net_debit.
+     * Net wallet debit per in-range succeeded generation: debits (holds +
+     * captures) minus credits (releases), matching GenerationPresenter's
+     * wallet_net_debit.
      */
-    private function netDebitSubquery(): Builder
+    private function netDebitSubquery(CarbonImmutable $start, CarbonImmutable $end): Builder
     {
         return DB::table('transactions')
-            ->select('transactionable_id')
+            ->join('generations', function (JoinClause $join): void {
+                $join->on('generations.id', '=', 'transactions.transactionable_id')
+                    ->where('transactions.transactionable_type', '=', (new Generation)->getMorphClass());
+            })
+            ->where('generations.status', GenerationStatus::Succeeded->value)
+            ->whereBetween('generations.completed_at', [$start, $end->endOfDay()])
+            ->select('transactions.transactionable_id')
             ->selectRaw('sum(case when direction = ? then -amount else amount end) as net', [TransactionDirection::Credit->value])
-            ->where('transactionable_type', (new Generation)->getMorphClass())
-            ->groupBy('transactionable_id');
+            ->groupBy('transactions.transactionable_id');
     }
 }

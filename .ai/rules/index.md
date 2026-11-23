@@ -1,6 +1,6 @@
 # Project Rules Index
 
-Before planning or editing, find the row whose globs match the file's path and read that rule file.
+Before planning or editing, find every row whose globs match the file's path and read all of those rule files — paths can match several globs at once (a controller matches `app/**`, `app/Http/**`, and `app/Http/Controllers/**`).
 
 | Applies to              | Rule file                |
 | ----------------------- | ------------------------ |

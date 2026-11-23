@@ -2,6 +2,7 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -30,6 +31,19 @@ return new class extends Migration
      */
     public function down(): void
     {
+        // Anonymized billing rows have no owner to restore the NOT NULL
+        // constraint onto — fail with guidance instead of a constraint error.
+        $orphanedGenerations = DB::table('generations')->whereNull('user_id')->count();
+        $orphanedWallets = DB::table('wallets')->whereNull('user_id')->count();
+
+        if ($orphanedGenerations > 0 || $orphanedWallets > 0) {
+            throw new RuntimeException(
+                "Cannot roll back: {$orphanedGenerations} generation(s) and {$orphanedWallets} wallet(s) ".
+                'are retained anonymized billing records (user_id is null). Reassign them to an owner '.
+                'or delete them manually before restoring the non-null constraint.'
+            );
+        }
+
         Schema::table('generations', function (Blueprint $table): void {
             $table->foreignId('user_id')->nullable(false)->change();
         });
