@@ -26,8 +26,11 @@ Route::middleware(['auth', 'verified'])->group(function (): void {
         ->middleware('throttle:60,1,generations_estimate')
         ->name('generations.estimate');
     Route::get('generations', [GenerationController::class, 'index'])->name('generations.index');
-    Route::get('generations/{generation}', [GenerationController::class, 'show'])->name('generations.show');
+    Route::get('generations/{generation}', [GenerationController::class, 'show'])
+        ->whereNumber('generation')
+        ->name('generations.show');
     Route::post('generations/{generation}/refresh', [GenerationController::class, 'refresh'])
+        ->whereNumber('generation')
         ->middleware('throttle:30,1,generations_refresh')
         ->name('generations.refresh');
     Route::get('credits', [WalletController::class, 'index'])->name('credits.index');
