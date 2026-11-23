@@ -34,7 +34,10 @@ class MakeUserAdminCommand extends Command
             return self::SUCCESS;
         }
 
+        // Promotion revokes demo status — an account cannot be both publicly
+        // exposable via demo login and an admin.
         $user->is_admin = true;
+        $user->is_demo = false;
         $user->save();
 
         $this->info("[{$email}] is now an admin.");

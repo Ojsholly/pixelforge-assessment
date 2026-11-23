@@ -57,11 +57,14 @@ which matters on deployments whose mail driver only logs.
 
 When `DEMO_LOGIN_ENABLED=true`, the landing and login pages show a **Try the
 demo** button that authenticates the visitor as `DEMO_LOGIN_EMAIL` (which
-defaults to `SEED_USER_EMAIL`) and lands them on the dashboard — no password
-required. The endpoint is a throttled, CSRF-protected `POST /demo-login` that
-404s when disabled, when the configured email does not resolve to a user, or
-when it resolves to an admin — so it can only ever expose the seeded demo
-account, never a real user. Leave it disabled anywhere real accounts exist.
+falls back to `SEED_USER_EMAIL` when left blank) and lands them on the
+dashboard — no password required. The endpoint is a throttled, CSRF-protected
+`POST /demo-login` that 404s unless the configured email resolves to a
+non-admin account **flagged `is_demo` by the seeder** — so it can only ever
+expose the deliberately-seeded demo account, never a real user that happens
+to share the email. Demo accounts are also permanently denied admin routes
+even if promoted, and `user:make-admin` clears the flag on deliberate
+promotion. Leave it disabled anywhere real accounts exist.
 
 ## Documentation
 

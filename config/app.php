@@ -149,7 +149,7 @@ return [
 
     'demo_login' => [
         'enabled' => env('DEMO_LOGIN_ENABLED', false),
-        'email' => env('DEMO_LOGIN_EMAIL', env('SEED_USER_EMAIL')),
+        'email' => env('DEMO_LOGIN_EMAIL') ?: env('SEED_USER_EMAIL'),
     ],
 
 ];

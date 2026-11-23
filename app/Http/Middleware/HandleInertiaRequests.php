@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use App\Models\User;
 use App\Services\WalletService;
+use App\Support\DemoLogin;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 
@@ -60,7 +61,7 @@ class HandleInertiaRequests extends Middleware
             'flash' => [
                 'status' => $request->session()->get('status'),
             ],
-            'demoLogin' => (bool) config('app.demo_login.enabled') && filled(config('app.demo_login.email')),
+            'demoLogin' => fn (): bool => DemoLogin::eligibleUser() instanceof User,
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
         ];
     }

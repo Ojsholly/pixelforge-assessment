@@ -3,7 +3,7 @@
 use App\Http\Controllers\Admin\ReportController;
 use App\Http\Controllers\Credits\WalletController;
 use App\Http\Controllers\DashboardController;
-use App\Http\Controllers\DemoLoginController;
+use App\Http\Controllers\Demo\DemoLoginController;
 use App\Http\Controllers\Generations\EstimateGenerationController;
 use App\Http\Controllers\Generations\GenerationController;
 use App\Http\Controllers\Webhooks\PixelforgeWebhookController;
