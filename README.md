@@ -46,10 +46,12 @@ SEED_ADMIN_PASSWORD='pick-your-own' php artisan db:seed
 ```
 
 `db:seed` only creates accounts whose `SEED_*_EMAIL` is configured (persisted
-`.env` values work the same), and skips emails that already exist — it can
-never reset a live password or double-fund a wallet. Email verification is
-skipped for seeded accounts, which matters on deployments whose mail driver
-only logs.
+`.env` values work the same). An existing demo email is skipped, while a
+configured admin email that already belongs to a **non-admin** stops the seed
+with the `user:make-admin` guidance — promoting silently could hand a fresh
+password to a live session. Seeding can never reset a live password or
+double-fund a wallet. Email verification is skipped for seeded accounts,
+which matters on deployments whose mail driver only logs.
 
 ## Documentation
 

@@ -8,6 +8,7 @@ use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use RuntimeException;
+use Symfony\Component\Console\Formatter\OutputFormatter;
 
 /**
  * Opt-in admin account: run `php artisan db:seed --class=AdminUserSeeder` with
@@ -54,7 +55,12 @@ class AdminUserSeeder extends Seeder
         ])->save();
 
         if ($generated) {
-            $this->command?->warn("Admin seeded for [{$email}] with generated password: {$password}");
+            // Escape before printing — Str::password() can emit <, >, or \,
+            // which the console formatter would otherwise eat as markup and
+            // hand the operator a password that doesn't match the database.
+            $this->command?->warn(
+                'Admin seeded for ['.$email.'] with generated password: '.OutputFormatter::escape($password)
+            );
         }
     }
 }

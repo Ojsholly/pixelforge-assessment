@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use RuntimeException;
+use Symfony\Component\Console\Formatter\OutputFormatter;
 
 /**
  * Opt-in demo account: run `php artisan db:seed --class=DemoUserSeeder` with
@@ -76,7 +77,11 @@ class DemoUserSeeder extends Seeder
         });
 
         if ($generated) {
-            $this->command?->warn("Demo user seeded for [{$email}] with generated password: {$password}");
+            // See AdminUserSeeder — escape so console markup can't corrupt
+            // the printed password.
+            $this->command?->warn(
+                'Demo user seeded for ['.$email.'] with generated password: '.OutputFormatter::escape($password)
+            );
         }
     }
 }
