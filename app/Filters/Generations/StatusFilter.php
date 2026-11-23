@@ -22,7 +22,7 @@ final readonly class StatusFilter
      */
     public function handle(Builder $query, Closure $next): Builder
     {
-        if ($this->status instanceof \App\Enums\GenerationStatus) {
+        if ($this->status instanceof GenerationStatus) {
             $query->where('status', $this->status->value);
         }
 

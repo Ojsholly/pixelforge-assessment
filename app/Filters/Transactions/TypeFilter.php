@@ -22,7 +22,7 @@ final readonly class TypeFilter
      */
     public function handle(Builder $query, Closure $next): Builder
     {
-        if ($this->type instanceof \App\Enums\TransactionType) {
+        if ($this->type instanceof TransactionType) {
             $query->where('type', $this->type->value);
         }
 

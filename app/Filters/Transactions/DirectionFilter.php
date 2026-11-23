@@ -22,7 +22,7 @@ final readonly class DirectionFilter
      */
     public function handle(Builder $query, Closure $next): Builder
     {
-        if ($this->direction instanceof \App\Enums\TransactionDirection) {
+        if ($this->direction instanceof TransactionDirection) {
             $query->where('direction', $this->direction->value);
         }
 
