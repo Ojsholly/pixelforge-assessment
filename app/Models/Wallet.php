@@ -14,7 +14,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * @property int $id
- * @property int $user_id
+ * @property int|null $user_id
  * @property int $balance
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at

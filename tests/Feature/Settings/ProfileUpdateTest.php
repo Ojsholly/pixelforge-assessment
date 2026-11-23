@@ -33,6 +33,20 @@ test('profile information can be updated', function () {
     expect($user->email_verified_at)->toBeNull();
 });
 
+test('is_admin is prohibited in profile updates', function () {
+    $user = User::factory()->create();
+
+    $this->actingAs($user)
+        ->patch(route('profile.update'), [
+            'name' => $user->name,
+            'email' => $user->email,
+            'is_admin' => true,
+        ])
+        ->assertSessionHasErrors('is_admin');
+
+    expect($user->refresh()->is_admin)->toBeFalse();
+});
+
 test('email is stored in lowercase so the user can still log in', function () {
     $user = User::factory()->create();
 

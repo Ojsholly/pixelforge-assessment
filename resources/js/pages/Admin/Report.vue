@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { Head, router } from '@inertiajs/vue3';
-import { reactive } from 'vue';
+import { Head, router, usePage } from '@inertiajs/vue3';
+import { reactive, watch } from 'vue';
+import InputError from '@/components/InputError.vue';
 import { Button } from '@/components/ui/button';
 import {
     Card,
@@ -17,6 +18,10 @@ type DayRow = {
     generations: number;
     user_spend_usd: string;
     user_spend_display: string;
+    collected_usd: string;
+    collected_display: string;
+    uncollected_usd: string;
+    uncollected_display: string;
     provider_cost_usd: string;
     provider_cost_display: string;
     profit_usd: string;
@@ -34,6 +39,10 @@ type UserRow = {
     generations: number;
     user_spend_usd: string;
     user_spend_display: string;
+    collected_usd: string;
+    collected_display: string;
+    uncollected_usd: string;
+    uncollected_display: string;
     provider_cost_usd: string;
     provider_cost_display: string;
     profit_usd: string;
@@ -45,6 +54,10 @@ type Totals = {
     provider_generations: number;
     user_spend_usd: string;
     user_spend_display: string;
+    collected_usd: string;
+    collected_display: string;
+    uncollected_usd: string;
+    uncollected_display: string;
     provider_cost_usd: string;
     provider_cost_display: string;
     profit_usd: string;
@@ -63,10 +76,23 @@ const props = defineProps<{
     totals: Totals;
 }>();
 
+const page = usePage();
+const errors = page.props.errors as Record<string, string | undefined>;
+
 const form = reactive({
     start_date: props.range.start_date,
     end_date: props.range.end_date,
 });
+
+// After a successful apply the range prop echoes the resolved dates —
+// sync the inputs so a cleared or defaulted submission shows the truth.
+watch(
+    () => props.range,
+    (range) => {
+        form.start_date = range.start_date;
+        form.end_date = range.end_date;
+    },
+);
 
 function applyRange(): void {
     router.get(
@@ -85,6 +111,11 @@ const deltaClass = (delta: number): string =>
         ? 'text-muted-foreground'
         : 'font-medium text-red-600 dark:text-red-400';
 
+const uncollectedClass = (usd: string): string =>
+    usd === '0.000000000'
+        ? 'text-muted-foreground'
+        : 'font-medium text-amber-600 dark:text-amber-400';
+
 defineOptions({
     layout: {
         breadcrumbs: [{ title: 'Usage Report', href: report() }],
@@ -98,7 +129,7 @@ defineOptions({
     >
         <Head title="Usage Report" />
 
-        <div class="flex flex-wrap items-end gap-3">
+        <div class="flex flex-wrap items-start gap-3">
             <div class="flex flex-col gap-1">
                 <label
                     for="start_date"
@@ -111,6 +142,7 @@ defineOptions({
                     type="date"
                     class="w-40"
                 />
+                <InputError :message="errors.start_date" />
             </div>
             <div class="flex flex-col gap-1">
                 <label
@@ -124,18 +156,24 @@ defineOptions({
                     type="date"
                     class="w-40"
                 />
+                <InputError :message="errors.end_date" />
             </div>
-            <Button size="sm" @click="applyRange">Apply</Button>
-            <Button size="sm" variant="outline" @click="resetRange">
+            <Button size="sm" class="mt-5" @click="applyRange">Apply</Button>
+            <Button
+                size="sm"
+                variant="outline"
+                class="mt-5"
+                @click="resetRange"
+            >
                 Last 30 days
             </Button>
-            <p class="text-xs text-muted-foreground">
-                UTC days, billed on completion — max
-                {{ range.max_days }}-day range
+            <p class="mt-5 text-xs text-muted-foreground">
+                Showing {{ range.start_date }} → {{ range.end_date }} — UTC
+                days, billed on completion (max {{ range.max_days }} days)
             </p>
         </div>
 
-        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
             <Card>
                 <CardHeader class="pb-2">
                     <CardDescription>Generations</CardDescription>
@@ -149,13 +187,25 @@ defineOptions({
             </Card>
             <Card>
                 <CardHeader class="pb-2">
-                    <CardDescription>User Spend</CardDescription>
+                    <CardDescription>User Spend (Billed)</CardDescription>
                     <CardTitle class="text-2xl">
                         {{ totals.user_spend_display }}
                     </CardTitle>
                 </CardHeader>
                 <CardContent class="text-xs text-muted-foreground">
                     {{ totals.user_spend_usd }} USD
+                </CardContent>
+            </Card>
+            <Card>
+                <CardHeader class="pb-2">
+                    <CardDescription>Collected</CardDescription>
+                    <CardTitle class="text-2xl">
+                        {{ totals.collected_display }}
+                    </CardTitle>
+                </CardHeader>
+                <CardContent class="text-xs text-muted-foreground">
+                    Net wallet debit; uncollected:
+                    {{ totals.uncollected_display }}
                 </CardContent>
             </Card>
             <Card>
@@ -177,7 +227,7 @@ defineOptions({
                     </CardTitle>
                 </CardHeader>
                 <CardContent class="text-xs text-muted-foreground">
-                    {{ totals.profit_usd }} USD
+                    {{ totals.profit_usd }} USD (billed − provider cost)
                 </CardContent>
             </Card>
             <Card>
@@ -214,7 +264,9 @@ defineOptions({
                         >
                             <th class="py-2 pr-4 font-medium">Date</th>
                             <th class="py-2 pr-4 font-medium">Generations</th>
-                            <th class="py-2 pr-4 font-medium">User Spend</th>
+                            <th class="py-2 pr-4 font-medium">Billed Spend</th>
+                            <th class="py-2 pr-4 font-medium">Collected</th>
+                            <th class="py-2 pr-4 font-medium">Uncollected</th>
                             <th class="py-2 pr-4 font-medium">Provider Cost</th>
                             <th class="py-2 pr-4 font-medium">Profit</th>
                             <th class="py-2 pr-4 font-medium">
@@ -235,6 +287,16 @@ defineOptions({
                             <td class="py-2 pr-4">{{ day.generations }}</td>
                             <td class="py-2 pr-4" :title="day.user_spend_usd">
                                 {{ day.user_spend_display }}
+                            </td>
+                            <td class="py-2 pr-4" :title="day.collected_usd">
+                                {{ day.collected_display }}
+                            </td>
+                            <td
+                                class="py-2 pr-4"
+                                :class="uncollectedClass(day.uncollected_usd)"
+                                :title="day.uncollected_usd"
+                            >
+                                {{ day.uncollected_display }}
                             </td>
                             <td
                                 class="py-2 pr-4"
@@ -261,7 +323,7 @@ defineOptions({
                         </tr>
                         <tr v-if="days.length === 0">
                             <td
-                                colspan="7"
+                                colspan="9"
                                 class="py-6 text-center text-muted-foreground"
                             >
                                 No usage in this range.
@@ -276,7 +338,9 @@ defineOptions({
             <CardHeader>
                 <CardTitle>Per-User Totals</CardTitle>
                 <CardDescription>
-                    Succeeded generations only, ordered by spend.
+                    Succeeded generations only, ordered by spend. Billing
+                    records of deleted accounts are retained and reported as
+                    "Deleted users".
                 </CardDescription>
             </CardHeader>
             <CardContent class="overflow-x-auto">
@@ -287,7 +351,8 @@ defineOptions({
                         >
                             <th class="py-2 pr-4 font-medium">User</th>
                             <th class="py-2 pr-4 font-medium">Generations</th>
-                            <th class="py-2 pr-4 font-medium">User Spend</th>
+                            <th class="py-2 pr-4 font-medium">Billed Spend</th>
+                            <th class="py-2 pr-4 font-medium">Collected</th>
                             <th class="py-2 pr-4 font-medium">Provider Cost</th>
                             <th class="py-2 font-medium">Profit</th>
                         </tr>
@@ -308,6 +373,9 @@ defineOptions({
                             <td class="py-2 pr-4" :title="user.user_spend_usd">
                                 {{ user.user_spend_display }}
                             </td>
+                            <td class="py-2 pr-4" :title="user.collected_usd">
+                                {{ user.collected_display }}
+                            </td>
                             <td
                                 class="py-2 pr-4"
                                 :title="user.provider_cost_usd"
@@ -320,7 +388,7 @@ defineOptions({
                         </tr>
                         <tr v-if="users.length === 0">
                             <td
-                                colspan="5"
+                                colspan="6"
                                 class="py-6 text-center text-muted-foreground"
                             >
                                 No succeeded generations in this range.

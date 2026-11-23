@@ -55,6 +55,20 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
                         ->select('provider_id'),
                 )
                 ->delete();
+
+            // Keep billing history for reconciliation while stripping PII:
+            // generations retain costs/timestamps, the wallet keeps its ledger.
+            Generation::query()
+                ->where('user_id', $user->id)
+                ->update([
+                    'user_id' => null,
+                    'prompt' => '[deleted]',
+                    'reference_images' => null,
+                    'image_url' => null,
+                    'image_url_expires_at' => null,
+                ]);
+
+            $user->wallet()->update(['user_id' => null]);
         });
     }
 

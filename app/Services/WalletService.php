@@ -106,7 +106,7 @@ final readonly class WalletService
         }
 
         DB::transaction(function () use ($generation, $actualUserCostNanodollars): void {
-            $wallet = $this->lockWallet($generation->user_id);
+            $wallet = $this->walletForGeneration($generation);
 
             if ($generation->reserved_amount > $actualUserCostNanodollars) {
                 $surplus = $generation->reserved_amount - $actualUserCostNanodollars;
@@ -140,7 +140,7 @@ final readonly class WalletService
         }
 
         DB::transaction(function () use ($generation, $reason): void {
-            $wallet = $this->lockWallet($generation->user_id);
+            $wallet = $this->walletForGeneration($generation);
 
             $refund = $generation->reserved_amount;
             $wallet->balance += $refund;
@@ -158,6 +158,30 @@ final readonly class WalletService
         /** @var Wallet $wallet */
         $wallet = Wallet::query()
             ->where('user_id', $userId)
+            ->lockForUpdate()
+            ->firstOrFail();
+
+        return $wallet;
+    }
+
+    /**
+     * Resolve the wallet a generation's hold lives on. Orphaned generations
+     * (owner account deleted, user_id nulled) resolve through their hold
+     * transaction so settlement/refunds still hit the anonymized wallet.
+     */
+    private function walletForGeneration(Generation $generation): Wallet
+    {
+        if ($generation->user_id !== null) {
+            return $this->lockWallet($generation->user_id);
+        }
+
+        /** @var Wallet $wallet */
+        $wallet = Wallet::query()
+            ->whereHas('transactions', function ($query) use ($generation): void {
+                $query->where('transactionable_type', $generation->getMorphClass())
+                    ->where('transactionable_id', $generation->id)
+                    ->where('type', TransactionType::Hold->value);
+            })
             ->lockForUpdate()
             ->firstOrFail();
 
