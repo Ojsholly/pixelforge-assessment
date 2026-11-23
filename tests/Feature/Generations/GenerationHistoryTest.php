@@ -150,6 +150,18 @@ it('shows a generation to its owner and forbids other users', function (): void 
         ->assertForbidden();
 });
 
+it('rejects non-numeric generation identifiers with a 404', function (): void {
+    $user = User::factory()->create();
+
+    $this->actingAs($user)
+        ->get('/generations/not-an-id')
+        ->assertNotFound();
+
+    $this->actingAs($user)
+        ->post('/generations/not-an-id/refresh')
+        ->assertNotFound();
+});
+
 it('exposes presenter flags for free, pending, and untrusted image urls', function (): void {
     $user = User::factory()->create();
 

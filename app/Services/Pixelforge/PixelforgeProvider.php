@@ -23,47 +23,41 @@ final class PixelforgeProvider implements ImageGenerationProvider
 
     public function getPricing(): PricingData
     {
-        return Cache::remember(self::PRICING_CACHE_KEY, now()->addMinutes(5), function (): PricingData {
-            try {
-                $response = $this->publicClient()
-                    ->retry(2, 200, fn (Throwable $exception): bool => $exception instanceof ConnectionException
-                        || ($exception instanceof RequestException && $exception->response->serverError()), throw: false)
-                    ->get('/pricing');
-            } catch (ConnectionException $connectionException) {
-                throw new ProviderException(
-                    message: 'Could not connect to Pixelforge pricing endpoint.',
-                    statusCode: 503,
-                    errorCode: 'connection_error',
-                    previous: $connectionException,
-                );
-            }
+        // Cache the wire payload, not the DTO: serializable_classes=false in
+        // cache config means objects unserialize to __PHP_Incomplete_Class.
+        // A non-array hit is such a stale entry — drop it and refetch.
+        $payload = Cache::get(self::PRICING_CACHE_KEY);
 
-            if ($response->failed()) {
-                throw $this->toProviderException($response, 'Failed to fetch Pixelforge pricing.');
-            }
+        if (! is_array($payload)) {
+            Cache::forget(self::PRICING_CACHE_KEY);
+            $payload = $this->fetchPricing();
+        }
 
-            $payload = $response->json();
+        return $this->pricingFromPayload($payload);
+    }
 
-            if (! is_array($payload)) {
-                throw new ProviderException(
-                    message: 'Malformed pricing payload: expected JSON object.',
-                    statusCode: 502,
-                    errorCode: 'malformed_response',
-                );
-            }
+    /**
+     * @return array<string, mixed>
+     */
+    private function fetchPricing(): array
+    {
+        $payload = $this->objectPayload(
+            $this->send(
+                client: $this->publicClient(),
+                retries: 2,
+                shouldRetry: $this->isTransientError(...),
+                connectionMessage: 'Could not connect to Pixelforge pricing endpoint.',
+                failureMessage: 'Failed to fetch Pixelforge pricing.',
+                request: fn (PendingRequest $client): Response => $client->get('/pricing'),
+            ),
+            'pricing',
+        );
 
-            try {
-                /** @var array<string, mixed> $payload */
-                return PricingData::fromArray($payload);
-            } catch (InvalidArgumentException $invalidArgumentException) {
-                throw new ProviderException(
-                    message: $invalidArgumentException->getMessage(),
-                    statusCode: 502,
-                    errorCode: 'malformed_response',
-                    previous: $invalidArgumentException,
-                );
-            }
-        });
+        $this->pricingFromPayload($payload);
+
+        Cache::put(self::PRICING_CACHE_KEY, $payload, now()->addMinutes(5));
+
+        return $payload;
     }
 
     public function createGeneration(CreateGenerationInput $input): ProviderGenerationData
@@ -82,92 +76,44 @@ final class PixelforgeProvider implements ImageGenerationProvider
             $body['metadata'] = $input->metadata;
         }
 
-        try {
-            $response = $this->authenticatedClient()
-                ->withHeaders(['Idempotency-Key' => $input->idempotencyKey])
-                ->retry(3, 200, fn (Throwable $exception): bool => $exception instanceof ConnectionException
-                    || ($exception instanceof RequestException && $exception->response->status() === 503), throw: false)
-                ->post('/generations', $body);
-        } catch (ConnectionException $connectionException) {
-            throw new ProviderException(
-                message: 'Could not connect to Pixelforge generation endpoint.',
-                statusCode: 503,
-                errorCode: 'connection_error',
-                previous: $connectionException,
-            );
-        }
-
-        if ($response->failed()) {
-            throw $this->toProviderException($response, 'Failed to create Pixelforge generation.');
-        }
+        $response = $this->send(
+            client: $this->authenticatedClient()->withHeaders(['Idempotency-Key' => $input->idempotencyKey]),
+            retries: 3,
+            shouldRetry: $this->isOverloadedError(...),
+            connectionMessage: 'Could not connect to Pixelforge generation endpoint.',
+            failureMessage: 'Failed to create Pixelforge generation.',
+            request: fn (PendingRequest $client): Response => $client->post('/generations', $body),
+        );
 
         return $this->hydrateGeneration($response);
     }
 
     public function getGeneration(string $providerId): ProviderGenerationData
     {
-        try {
-            $response = $this->authenticatedClient()
-                ->retry(2, 200, fn (Throwable $exception): bool => $exception instanceof ConnectionException
-                    || ($exception instanceof RequestException && $exception->response->serverError()), throw: false)
-                ->get("/generations/{$providerId}");
-        } catch (ConnectionException $connectionException) {
-            throw new ProviderException(
-                message: 'Could not connect to Pixelforge generation endpoint.',
-                statusCode: 503,
-                errorCode: 'connection_error',
-                previous: $connectionException,
-            );
-        }
-
-        if ($response->failed()) {
-            throw $this->toProviderException($response, 'Failed to fetch Pixelforge generation.');
-        }
+        $response = $this->send(
+            client: $this->authenticatedClient(),
+            retries: 2,
+            shouldRetry: $this->isTransientError(...),
+            connectionMessage: 'Could not connect to Pixelforge generation endpoint.',
+            failureMessage: 'Failed to fetch Pixelforge generation.',
+            request: fn (PendingRequest $client): Response => $client->get("/generations/{$providerId}"),
+        );
 
         return $this->hydrateGeneration($response);
     }
 
     public function getUsage(string $startDate, string $endDate): UsageReportData
     {
-        try {
-            $response = $this->authenticatedClient()
-                ->retry(2, 200, fn (Throwable $exception): bool => $exception instanceof ConnectionException
-                    || ($exception instanceof RequestException && $exception->response->serverError()), throw: false)
-                ->get('/usage', ['start_date' => $startDate, 'end_date' => $endDate]);
-        } catch (ConnectionException $connectionException) {
-            throw new ProviderException(
-                message: 'Could not connect to Pixelforge usage endpoint.',
-                statusCode: 503,
-                errorCode: 'connection_error',
-                previous: $connectionException,
-            );
-        }
+        $response = $this->send(
+            client: $this->authenticatedClient(),
+            retries: 2,
+            shouldRetry: $this->isTransientError(...),
+            connectionMessage: 'Could not connect to Pixelforge usage endpoint.',
+            failureMessage: 'Failed to fetch Pixelforge usage report.',
+            request: fn (PendingRequest $client): Response => $client->get('/usage', ['start_date' => $startDate, 'end_date' => $endDate]),
+        );
 
-        if ($response->failed()) {
-            throw $this->toProviderException($response, 'Failed to fetch Pixelforge usage report.');
-        }
-
-        $payload = $response->json();
-
-        if (! is_array($payload)) {
-            throw new ProviderException(
-                message: 'Malformed usage payload: expected JSON object.',
-                statusCode: 502,
-                errorCode: 'malformed_response',
-            );
-        }
-
-        try {
-            /** @var array<string, mixed> $payload */
-            return UsageReportData::fromArray($payload);
-        } catch (InvalidArgumentException $invalidArgumentException) {
-            throw new ProviderException(
-                message: $invalidArgumentException->getMessage(),
-                statusCode: 502,
-                errorCode: 'malformed_response',
-                previous: $invalidArgumentException,
-            );
-        }
+        return $this->hydrate($response, UsageReportData::fromArray(...), 'usage');
     }
 
     public function verifyWebhookSignature(string $rawPayload, ?string $signatureHeader, int $toleranceSeconds = 300): bool
@@ -205,6 +151,58 @@ final class PixelforgeProvider implements ImageGenerationProvider
         return array_any($signatures, fn (string $signature): bool => hash_equals($expected, $signature));
     }
 
+    /**
+     * Execute an HTTP call with retry + uniform exception translation:
+     * ConnectionException → 503, any failed response → the provider error.
+     *
+     * @param  callable(PendingRequest): Response  $request
+     * @param  callable(Throwable): bool  $shouldRetry
+     */
+    private function send(
+        PendingRequest $client,
+        int $retries,
+        callable $shouldRetry,
+        string $connectionMessage,
+        string $failureMessage,
+        callable $request,
+    ): Response {
+        try {
+            $response = $request($client->retry($retries, 200, $shouldRetry, throw: false));
+        } catch (ConnectionException $connectionException) {
+            throw new ProviderException(
+                message: $connectionMessage,
+                statusCode: 503,
+                errorCode: 'connection_error',
+                previous: $connectionException,
+            );
+        }
+
+        if ($response->failed()) {
+            throw $this->toProviderException($response, $failureMessage);
+        }
+
+        return $response;
+    }
+
+    /**
+     * Retry every connection failure and any 5xx response.
+     */
+    private function isTransientError(Throwable $exception): bool
+    {
+        return $exception instanceof ConnectionException
+            || ($exception instanceof RequestException && $exception->response->serverError());
+    }
+
+    /**
+     * Retry connection failures and only 503s — a 429 means the caller must
+     * slow down, not retry.
+     */
+    private function isOverloadedError(Throwable $exception): bool
+    {
+        return $exception instanceof ConnectionException
+            || ($exception instanceof RequestException && $exception->response->status() === 503);
+    }
+
     private function publicClient(): PendingRequest
     {
         /** @var string $baseUrl */
@@ -230,21 +228,59 @@ final class PixelforgeProvider implements ImageGenerationProvider
         return $this->publicClient()->withToken($apiKey);
     }
 
-    private function hydrateGeneration(Response $response): ProviderGenerationData
+    /**
+     * @return array<string, mixed>
+     */
+    private function objectPayload(Response $response, string $context): array
     {
         $payload = $response->json();
 
         if (! is_array($payload)) {
             throw new ProviderException(
-                message: 'Malformed generation payload: expected JSON object.',
+                message: "Malformed {$context} payload: expected JSON object.",
                 statusCode: 502,
                 errorCode: 'malformed_response',
             );
         }
 
+        return $payload;
+    }
+
+    /**
+     * Decode the response JSON and hydrate it through a DTO factory, mapping
+     * malformed payloads to a 502 ProviderException.
+     *
+     * @template T
+     *
+     * @param  callable(array<string, mixed>): T  $hydrate
+     * @return T
+     */
+    private function hydrate(Response $response, callable $hydrate, string $context): mixed
+    {
         try {
-            /** @var array<string, mixed> $payload */
-            return ProviderGenerationData::fromArray($payload);
+            return $hydrate($this->objectPayload($response, $context));
+        } catch (InvalidArgumentException $invalidArgumentException) {
+            throw new ProviderException(
+                message: $invalidArgumentException->getMessage(),
+                statusCode: 502,
+                errorCode: 'malformed_response',
+                previous: $invalidArgumentException,
+            );
+        }
+    }
+
+    private function hydrateGeneration(Response $response): ProviderGenerationData
+    {
+        return $this->hydrate($response, ProviderGenerationData::fromArray(...), 'generation');
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function pricingFromPayload(array $payload): PricingData
+    {
+        try {
+            return PricingData::fromArray($payload);
         } catch (InvalidArgumentException $invalidArgumentException) {
             throw new ProviderException(
                 message: $invalidArgumentException->getMessage(),

@@ -2,6 +2,8 @@
 
 use App\Contracts\ImageGenerationProvider;
 use App\Enums\TransactionType;
+use App\Jobs\ProcessWebhookEvent;
+use App\Jobs\ReconcileGenerationJob;
 use App\Models\Generation;
 use App\Models\Transaction;
 use App\Models\User;
@@ -12,7 +14,12 @@ use App\States\Generation\Processing;
 use App\States\Generation\Queued;
 use App\States\Generation\Succeeded;
 use App\Support\Money;
+use Illuminate\Bus\UniqueLock;
+use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use RuntimeException;
 
@@ -297,7 +304,7 @@ it('reconciles stale queued and processing generations via artisan command', fun
     ]);
 
     $this->artisan('generations:reconcile-stale')
-        ->expectsOutput('Reconciled 1 stale generation(s).')
+        ->expectsOutput('Dispatched 1 stale-generation reconciliation job(s).')
         ->assertSuccessful();
 
     expect($stale->refresh()->status)->toBeInstanceOf(Succeeded::class)
@@ -343,7 +350,7 @@ it('acknowledges malformed generation webhook objects without 500 and fails stal
     ]);
 
     $this->artisan('generations:reconcile-stale --max-age=60')
-        ->expectsOutput('Reconciled 1 stale generation(s).')
+        ->expectsOutput('Dispatched 1 stale-generation reconciliation job(s).')
         ->assertSuccessful();
 
     expect($generation->refresh()->status)->toBeInstanceOf(Failed::class)
@@ -381,7 +388,7 @@ it('times out generations the provider still reports as pending past max age', f
     ]);
 
     $this->artisan('generations:reconcile-stale --max-age=60')
-        ->expectsOutput('Reconciled 1 stale generation(s).')
+        ->expectsOutput('Dispatched 2 stale-generation reconciliation job(s).')
         ->assertSuccessful();
 
     expect($expired->refresh()->status)->toBeInstanceOf(Failed::class)
@@ -418,7 +425,7 @@ it('treats malformed poll responses as transient and fails them only past the ha
     ]);
 
     $this->artisan('generations:reconcile-stale')
-        ->expectsOutput('Reconciled 1 stale generation(s).')
+        ->expectsOutput('Dispatched 2 stale-generation reconciliation job(s).')
         ->assertSuccessful();
 
     expect($recent->refresh()->status)->toBeInstanceOf(Queued::class)
@@ -446,7 +453,7 @@ it('skips transient provider errors and only fails generations past the hard max
     ]);
 
     $this->artisan('generations:reconcile-stale')
-        ->expectsOutput('Reconciled 1 stale generation(s).')
+        ->expectsOutput('Dispatched 2 stale-generation reconciliation job(s).')
         ->assertSuccessful();
 
     expect($recent->refresh()->status)->toBeInstanceOf(Queued::class)
@@ -473,7 +480,7 @@ it('releases expired holds after unexpected polling failures', function (): void
         ->andThrow(new RuntimeException('unexpected poll failure'));
 
     $this->artisan('generations:reconcile-stale')
-        ->expectsOutput('Reconciled 1 stale generation(s).')
+        ->expectsOutput('Dispatched 2 stale-generation reconciliation job(s).')
         ->assertSuccessful();
 
     expect($recent->refresh()->status)->toBeInstanceOf(Queued::class)
@@ -746,4 +753,222 @@ it('keeps image fields null when a retained generation succeeds after account de
                 ->where('type', TransactionType::Release->value)
                 ->exists()
         )->toBeTrue();
+});
+
+it('queues event processing and records the delivering provider', function (): void {
+    config(['services.pixelforge.webhook_secret' => 'whsec_test_secret']);
+    Queue::fake();
+
+    $rawBody = json_encode([
+        'id' => 'evt_queue_1',
+        'object' => 'event',
+        'type' => 'generation.processing',
+        'data' => ['object' => ['id' => 'gen_queue_1']],
+    ], JSON_THROW_ON_ERROR);
+
+    $this->call('POST', route('webhooks.pixelforge'), [], [], [], [
+        'CONTENT_TYPE' => 'application/json',
+        'HTTP_PIXELFORGE_SIGNATURE' => signWebhookPayload($rawBody),
+    ], $rawBody)->assertNoContent();
+
+    Queue::assertPushed(
+        ProcessWebhookEvent::class,
+        fn (ProcessWebhookEvent $job): bool => $job->providerEventId === 'evt_queue_1' && $job->uniqueId() === 'evt_queue_1',
+    );
+
+    $event = WebhookEvent::firstWhere('provider_event_id', 'evt_queue_1');
+
+    expect($event)->not->toBeNull()
+        ->and($event->provider)->toBe('pixelforge')
+        ->and($event->processed_at)->toBeNull();
+});
+
+it('bumps delivery_attempt on duplicate deliveries without reprocessing', function (): void {
+    config(['services.pixelforge.webhook_secret' => 'whsec_test_secret']);
+    Queue::fake();
+
+    $payload = [
+        'id' => 'evt_attempt_1',
+        'object' => 'event',
+        'type' => 'ping',
+        'data' => ['object' => []],
+    ];
+    $rawBody = json_encode($payload, JSON_THROW_ON_ERROR);
+
+    $headers = [
+        'CONTENT_TYPE' => 'application/json',
+        'HTTP_PIXELFORGE_SIGNATURE' => signWebhookPayload($rawBody),
+        'HTTP_PIXELFORGE_DELIVERY_ATTEMPT' => '4',
+    ];
+
+    $this->call('POST', route('webhooks.pixelforge'), [], [], [], $headers, $rawBody)->assertNoContent();
+    $this->call('POST', route('webhooks.pixelforge'), [], [], [], $headers, $rawBody)->assertNoContent();
+
+    $event = WebhookEvent::firstWhere('provider_event_id', 'evt_attempt_1');
+
+    expect($event->delivery_attempt)->toBe(4)
+        ->and(WebhookEvent::where('provider_event_id', 'evt_attempt_1')->count())->toBe(1);
+});
+
+it('rejects oversized webhook bodies before decoding with 413', function (): void {
+    config(['services.pixelforge.webhook_secret' => 'whsec_test_secret']);
+
+    $rawBody = json_encode([
+        'id' => 'evt_big_1',
+        'object' => 'event',
+        'type' => 'ping',
+        'data' => ['object' => ['pad' => Str::repeat('x', 300_000)]],
+    ], JSON_THROW_ON_ERROR);
+
+    $this->call('POST', route('webhooks.pixelforge'), [], [], [], [
+        'CONTENT_TYPE' => 'application/json',
+        'HTTP_PIXELFORGE_SIGNATURE' => signWebhookPayload($rawBody),
+    ], $rawBody)->assertStatus(413);
+});
+
+it('fails stale generations whose submission was never confirmed past the hard max age', function (): void {
+    config(['services.pixelforge.api_key' => 'test-key']);
+
+    $user = User::factory()->create();
+    $wallet = $user->wallet()->firstOrFail();
+    $wallet->balance = 5 * Money::NANODOLLARS_PER_USD;
+    $wallet->save();
+
+    $recent = Generation::factory()->submitted()->for($user)->create([
+        'provider_id' => null,
+        'created_at' => now()->subHours(2),
+        'updated_at' => now()->subMinutes(5),
+    ]);
+
+    $ancient = Generation::factory()->submitted()->for($user)->create([
+        'provider_id' => null,
+        'created_at' => now()->subDays(2),
+        'updated_at' => now()->subMinutes(5),
+    ]);
+
+    app(WalletService::class)->holdForGeneration($user, $ancient, 100_000_000);
+
+    // holdForGeneration re-saves the row — re-stamp its age afterwards.
+    $ancient->forceFill([
+        'created_at' => now()->subDays(2),
+        'updated_at' => now()->subMinutes(5),
+    ])->save();
+
+    $this->artisan('generations:reconcile-stale')
+        ->expectsOutput('Dispatched 2 stale-generation reconciliation job(s).')
+        ->assertSuccessful();
+
+    expect($recent->refresh()->status)->toBeInstanceOf(Queued::class)
+        ->and($ancient->refresh()->status)->toBeInstanceOf(Failed::class)
+        ->and($ancient->error_code)->toBe('submission_not_confirmed')
+        ->and($ancient->provider_id)->toBeNull()
+        ->and($ancient->reserved_amount)->toBe(0)
+        ->and($wallet->refresh()->balance)->toBe(5 * Money::NANODOLLARS_PER_USD);
+});
+
+it('settles a signed delivery end-to-end through the database queue driver', function (): void {
+    config([
+        'services.pixelforge.webhook_secret' => 'whsec_test_secret',
+        'queue.default' => 'database',
+    ]);
+
+    $user = User::factory()->create();
+    $wallet = $user->wallet()->firstOrFail();
+    $holdAmount = 100_000_000;
+    $wallet->balance = (5 * Money::NANODOLLARS_PER_USD) - $holdAmount;
+    $wallet->save();
+
+    $generation = Generation::factory()->submitted()->for($user)->create([
+        'provider_id' => 'gen_dbq_1',
+        'reserved_amount' => $holdAmount,
+        'estimated_max_user_cost' => $holdAmount,
+    ]);
+
+    $rawBody = json_encode([
+        'id' => 'evt_dbq_1',
+        'object' => 'event',
+        'type' => 'generation.succeeded',
+        'data' => [
+            'object' => [
+                'id' => 'gen_dbq_1',
+                'status' => 'succeeded',
+                'rates' => $generation->rates_snapshot,
+                'image_url' => 'https://pixelforge.promptedit.dev/images/gen_dbq_1.png',
+                'usage' => [
+                    'input_text_tokens' => 10,
+                    'input_image_tokens' => 0,
+                    'output_tokens' => 1100,
+                    'reasoning_tokens' => 500,
+                    'total_tokens' => 1610,
+                ],
+                'completed_at' => '2026-11-22T12:00:15Z',
+            ],
+        ],
+    ], JSON_THROW_ON_ERROR);
+
+    $this->call('POST', route('webhooks.pixelforge'), [], [], [], [
+        'CONTENT_TYPE' => 'application/json',
+        'HTTP_PIXELFORGE_SIGNATURE' => signWebhookPayload($rawBody),
+    ], $rawBody)->assertNoContent();
+
+    // The endpoint acknowledged fast: the event row and job row exist, but
+    // nothing is settled until a real worker drains the queue.
+    expect(WebhookEvent::firstWhere('provider_event_id', 'evt_dbq_1')?->processed_at)->toBeNull()
+        ->and($generation->refresh()->status)->toBeInstanceOf(Queued::class)
+        ->and(DB::table('jobs')->count())->toBe(1);
+
+    $this->artisan('queue:work', ['--once' => true, '--queue' => 'default', '--sleep' => 0])
+        ->assertSuccessful();
+
+    expect($generation->refresh()->status)->toBeInstanceOf(Succeeded::class)
+        ->and($generation->actual_user_cost)->toBe(62_875_000)
+        ->and($wallet->refresh()->balance)->toBe((5 * Money::NANODOLLARS_PER_USD) - 62_875_000)
+        ->and(WebhookEvent::firstWhere('provider_event_id', 'evt_dbq_1')?->processed_at)->not->toBeNull()
+        ->and(DB::table('jobs')->count())->toBe(0);
+});
+
+it('dispatches one unique reconcile job per stale generation', function (): void {
+    Bus::fake();
+
+    Generation::factory()->submitted()->create([
+        'provider_id' => 'gen_batch_1',
+        'updated_at' => now()->subMinutes(5),
+    ]);
+
+    Generation::factory()->processing()->create([
+        'provider_id' => 'gen_batch_2',
+        'updated_at' => now()->subMinutes(5),
+    ]);
+
+    $this->artisan('generations:reconcile-stale')
+        ->expectsOutput('Dispatched 2 stale-generation reconciliation job(s).')
+        ->assertSuccessful();
+
+    Bus::assertDispatched(ReconcileGenerationJob::class, 2);
+});
+
+it('skips stale generations whose reconcile job is already queued', function (): void {
+    Bus::fake();
+
+    $stale = Generation::factory()->submitted()->create([
+        'provider_id' => 'gen_dup_1',
+        'updated_at' => now()->subMinutes(5),
+    ]);
+
+    Generation::factory()->submitted()->create([
+        'provider_id' => 'gen_dup_2',
+        'updated_at' => now()->subMinutes(5),
+    ]);
+
+    // Simulate a copy of gen_dup_1's job already in flight by holding its
+    // unique lock — the command's dispatch must then skip it.
+    Cache::lock(
+        UniqueLock::getKey(new ReconcileGenerationJob($stale, now(), now())),
+    )->acquire();
+
+    $this->artisan('generations:reconcile-stale')
+        ->expectsOutput('Dispatched 1 stale-generation reconciliation job(s).')
+        ->assertSuccessful();
+
+    Bus::assertDispatched(ReconcileGenerationJob::class, 1);
 });

@@ -2,27 +2,28 @@
 
 namespace App\Console\Commands;
 
-use App\Actions\Generations\ApplyGenerationStateAction;
-use App\Contracts\ImageGenerationProvider;
-use App\Data\Pixelforge\ProviderGenerationData;
 use App\Enums\GenerationStatus;
-use App\Exceptions\ProviderException;
+use App\Jobs\ReconcileGenerationJob;
 use App\Models\Generation;
-use DateTimeInterface;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
-use Illuminate\Database\Eloquent\Collection;
-use Throwable;
+use Illuminate\Queue\Events\UniqueJobSkipped;
+use Illuminate\Support\Facades\Event;
 
 #[Description('Poll Pixelforge for stale queued or processing generations whose webhooks may have been missed.')]
 #[Signature('generations:reconcile-stale {--minutes=2 : Minimum age in minutes before reconciling} {--max-age=60 : Maximum age in minutes before timing out pending generations} {--hard-max-age=1440 : Maximum age in minutes before failing generations while the provider cannot be reached}')]
 class ReconcileStaleGenerationsCommand extends Command
 {
-    public function handle(
-        ImageGenerationProvider $provider,
-        ApplyGenerationStateAction $applyState,
-    ): int {
+    /**
+     * Selects stale generations and dispatches one ReconcileGenerationJob
+     * each through the normal dispatch path — batches push via bulk() and
+     * bypass ShouldBeUnique, so individual dispatches are what actually
+     * dedupes a generation that is still queued at the next scheduled run.
+     * Every job carries the cutoff snapshot the selection ran against.
+     */
+    public function handle(): int
+    {
         $minutes = max(1, (int) $this->option('minutes'));
         $maxAge = max($minutes, (int) $this->option('max-age'));
         $hardMaxAge = max($maxAge, (int) $this->option('hard-max-age'));
@@ -30,113 +31,34 @@ class ReconcileStaleGenerationsCommand extends Command
         $timeoutCutoff = now()->subMinutes($maxAge);
         $outageCutoff = now()->subMinutes($hardMaxAge);
 
-        $reconciled = 0;
-
-        Generation::query()
+        $stale = Generation::query()
             ->whereIn('status', [GenerationStatus::Queued->value, GenerationStatus::Processing->value])
-            ->whereNotNull('provider_id')
             ->where('updated_at', '<=', $cutoff)
             ->orderBy('id')
-            ->chunkById(50, function (Collection $generations) use ($provider, $applyState, $timeoutCutoff, $outageCutoff, &$reconciled): void {
-                /** @var Generation $generation */
-                foreach ($generations as $generation) {
-                    $providerId = $generation->provider_id;
-                    if ($providerId === null) {
-                        continue;
-                    }
+            ->get();
 
-                    $previousStatus = $generation->status->status();
+        if ($stale->isEmpty()) {
+            $this->info('No stale generations to reconcile.');
 
-                    $providerData = $this->resolveProviderData($provider, $generation, $providerId, $timeoutCutoff, $outageCutoff);
+            return self::SUCCESS;
+        }
 
-                    if (! $providerData instanceof ProviderGenerationData) {
-                        continue;
-                    }
+        // The unique check runs in PendingDispatch::__destruct, so there is
+        // no return value to count on — UniqueJobSkipped is the signal when
+        // a generation is already queued or being reconciled.
+        $skipped = 0;
+        Event::listen(UniqueJobSkipped::class, function () use (&$skipped): void {
+            $skipped++;
+        });
 
-                    $result = rescue(
-                        fn (): Generation => $applyState->execute($generation, $providerData),
-                        report: true,
-                    );
+        foreach ($stale as $generation) {
+            ReconcileGenerationJob::dispatch($generation, $timeoutCutoff, $outageCutoff);
+        }
 
-                    if ($result instanceof Generation && $result->status->status() !== $previousStatus) {
-                        $reconciled++;
-                    }
-                }
-            });
+        $dispatched = $stale->count() - $skipped;
 
-        $this->info("Reconciled {$reconciled} stale generation(s).");
+        $this->info("Dispatched {$dispatched} stale-generation reconciliation job(s).");
 
         return self::SUCCESS;
-    }
-
-    /**
-     * Poll the provider for the generation's status. Definitive outcomes (404, or
-     * still-pending past --max-age) become a synthetic failed payload; transient
-     * failures return null so the generation is retried on the next run unless it
-     * has exceeded --hard-max-age.
-     */
-    private function resolveProviderData(
-        ImageGenerationProvider $provider,
-        Generation $generation,
-        string $providerId,
-        DateTimeInterface $timeoutCutoff,
-        DateTimeInterface $outageCutoff,
-    ): ?ProviderGenerationData {
-        try {
-            $providerData = $provider->getGeneration($providerId);
-        } catch (ProviderException $exception) {
-            report($exception);
-
-            if ($exception->statusCode === 404) {
-                return $this->failedData($generation, $providerId, 'reconciliation_not_found', 'The provider reports this generation no longer exists.');
-            }
-
-            return $this->unreachableData($generation, $providerId, $outageCutoff);
-        } catch (Throwable $throwable) {
-            report($throwable);
-
-            return $this->unreachableData($generation, $providerId, $outageCutoff);
-        }
-
-        if (
-            in_array($providerData->status, [GenerationStatus::Queued, GenerationStatus::Processing], true)
-            && $generation->created_at !== null
-            && $generation->created_at->lte($timeoutCutoff)
-        ) {
-            return $this->failedData($generation, $providerId, 'reconciliation_timeout', 'Generation timed out awaiting provider completion.');
-        }
-
-        return $providerData;
-    }
-
-    /**
-     * Transient and unexpected polling failures return null (retry next run)
-     * until the generation exceeds --hard-max-age, which bounds wallet holds.
-     */
-    private function unreachableData(Generation $generation, string $providerId, DateTimeInterface $outageCutoff): ?ProviderGenerationData
-    {
-        if ($generation->created_at === null || $generation->created_at->gt($outageCutoff)) {
-            return null;
-        }
-
-        return $this->failedData($generation, $providerId, 'reconciliation_unreachable', 'The provider could not be reached before the maximum generation age.');
-    }
-
-    private function failedData(Generation $generation, string $providerId, string $errorCode, string $errorMessage): ProviderGenerationData
-    {
-        return new ProviderGenerationData(
-            id: $providerId,
-            status: GenerationStatus::Failed,
-            rates: $generation->rates_snapshot,
-            metadata: [],
-            imageUrl: null,
-            imageUrlExpiresAt: null,
-            usage: null,
-            errorCode: $errorCode,
-            errorMessage: $errorMessage,
-            createdAt: null,
-            startedAt: null,
-            completedAt: now()->toIso8601String(),
-        );
     }
 }

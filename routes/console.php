@@ -15,3 +15,6 @@ Schedule::command('generations:reconcile-stale')
 
 Schedule::command('model:prune', ['--model' => WebhookEvent::class])
     ->daily();
+
+Schedule::command('queue:prune-batches', ['--hours' => 48])
+    ->daily();

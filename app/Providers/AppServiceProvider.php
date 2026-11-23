@@ -5,6 +5,7 @@ namespace App\Providers;
 use App\Contracts\ImageGenerationProvider;
 use App\Services\Pixelforge\PixelforgeProvider;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\ServiceProvider;
@@ -41,6 +42,10 @@ class AppServiceProvider extends ServiceProvider
 
         DB::prohibitDestructiveCommands(
             app()->isProduction(),
+        );
+
+        Model::preventLazyLoading(
+            ! app()->isProduction(),
         );
 
         Password::defaults(fn (): ?Password => app()->isProduction()
