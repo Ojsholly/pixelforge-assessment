@@ -23,13 +23,13 @@ final class WalletController extends Controller
 {
     use UsesPipeline;
 
-    public function index(Request $request, TransactionPresenter $presenter): Response
+    public function index(Request $request, TransactionPresenter $presenter, WalletService $wallets): Response
     {
         /** @var User $user */
         $user = $request->user();
 
         $transactions = $this->pipeline(
-            $user->wallet->transactions()->with('transactionable')->getQuery(),
+            $wallets->ensureWallet($user)->transactions()->with('transactionable')->getQuery(),
         )
             ->paginate(15)
             ->withQueryString()

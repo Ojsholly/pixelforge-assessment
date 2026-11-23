@@ -9,6 +9,7 @@ use App\Models\Transaction;
 use App\Models\User;
 use App\Models\Wallet;
 use App\Support\Money;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
@@ -22,10 +23,18 @@ final readonly class WalletService
 {
     public function ensureWallet(User $user): Wallet
     {
-        /** @var Wallet $wallet */
-        $wallet = Wallet::query()->firstOrCreate(['user_id' => $user->id]);
+        try {
+            /** @var Wallet $wallet */
+            $wallet = Wallet::query()->firstOrCreate(['user_id' => $user->id]);
 
-        return $wallet;
+            return $wallet;
+        } catch (UniqueConstraintViolationException) {
+            // A concurrent request won the insert race — fetch the winner's row.
+            /** @var Wallet $wallet */
+            $wallet = Wallet::query()->where('user_id', $user->id)->firstOrFail();
+
+            return $wallet;
+        }
     }
 
     /**

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Head, Link, useForm, usePage } from '@inertiajs/vue3';
+import { Head, useForm, usePage } from '@inertiajs/vue3';
 import {
     AlertCircle,
     CheckCircle2,
@@ -45,6 +45,8 @@ type CostEstimate = {
     user_max_usd: string;
     user_min_display: string;
     user_max_display: string;
+    wallet_balance_nanodollars?: number;
+    wallet_balance_display?: string;
 };
 
 const props = defineProps<{
@@ -87,11 +89,25 @@ const balanceError = computed(
     () => (form.errors as Record<string, string | undefined>).balance,
 );
 const wallet = computed(() => usePage().props.wallet);
+// Prefer the balance echoed by the estimate endpoint — it's refreshed on every
+// estimate call, so background refunds/holds don't leave the display stale.
+const walletBalance = computed(
+    () =>
+        costEstimate.value?.wallet_balance_nanodollars ??
+        wallet.value?.balance ??
+        null,
+);
+const walletBalanceDisplay = computed(
+    () =>
+        costEstimate.value?.wallet_balance_display ??
+        wallet.value?.balance_display ??
+        null,
+);
 const insufficientBalance = computed(
     () =>
-        wallet.value !== null &&
+        walletBalance.value !== null &&
         costEstimate.value !== null &&
-        costEstimate.value.user_max_nanodollars > wallet.value.balance,
+        costEstimate.value.user_max_nanodollars > walletBalance.value,
 );
 
 function refImageError(index: number): string | undefined {
@@ -208,12 +224,12 @@ function submit(): void {
                 </p>
             </div>
             <Badge
-                v-if="wallet"
+                v-if="walletBalanceDisplay"
                 variant="secondary"
                 class="gap-1.5 px-3 py-1.5 text-sm"
             >
                 <Coins class="size-4" />
-                Balance {{ wallet.balance_display }}
+                Balance {{ walletBalanceDisplay }}
             </Badge>
         </div>
 
@@ -244,14 +260,18 @@ function submit(): void {
                 <p>
                     {{
                         balanceError ??
-                        `This generation requires up to ${costEstimate?.user_max_display}, but your balance is ${wallet?.balance_display}.`
+                        `This generation requires up to ${costEstimate?.user_max_display}, but your balance is ${walletBalanceDisplay}.`
                     }}
                 </p>
                 <Button as-child variant="outline" size="sm" class="mt-2">
-                    <Link :href="creditsIndex()">
+                    <a
+                        :href="creditsIndex().url"
+                        target="_blank"
+                        rel="noopener"
+                    >
                         <Coins class="mr-1.5 size-3.5" />
                         Buy credits
-                    </Link>
+                    </a>
                 </Button>
             </AlertDescription>
         </Alert>
