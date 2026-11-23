@@ -55,6 +55,9 @@ it('skips an existing email without resetting the password or double-funding', f
 });
 
 it('refuses to run without configured credentials', function (): void {
+    // Clear explicitly — .env.example ships demo defaults for graders.
+    config(['app.seed_user.email' => null, 'app.seed_user.password' => null]);
+
     expect(fn () => $this->artisan('db:seed', ['--class' => DemoUserSeeder::class]))
         ->toThrow(RuntimeException::class, 'SEED_USER_EMAIL');
 });

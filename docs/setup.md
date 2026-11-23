@@ -29,16 +29,16 @@ npm ci && npm run build
 
 Application-specific settings on top of the Laravel starter kit:
 
-| Variable                                   | Required | Purpose                                                                                    |
-| ------------------------------------------ | -------- | ------------------------------------------------------------------------------------------ |
-| `IMAGE_PROVIDER`                           | yes      | Provider driver — `pixelforge`                                                             |
-| `PIXELFORGE_BASE_URL`                      | yes      | API base **including `/v1`**, e.g. `https://pixelforge.promptedit.dev/v1`                  |
-| `PIXELFORGE_API_KEY`                       | yes      | Bearer key for all provider calls                                                          |
-| `PIXELFORGE_WEBHOOK_SECRET`                | yes      | HMAC secret for `POST /webhooks/pixelforge` signature verification                         |
-| `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` | no       | Opt-in: `AdminUserSeeder` creates this admin on `db:seed`. Never promote an existing user. |
-| `SEED_USER_EMAIL` / `SEED_USER_PASSWORD` / `SEED_USER_NAME` / `SEED_USER_CREDITS_USD` | no | Opt-in: `DemoUserSeeder` creates this pre-verified demo user and optionally funds its wallet (credits in USD, default `0.00`). Skips silently if the email exists. |
-| `QUEUE_CONNECTION`                         | yes      | `database` — webhook processing + reconciliation are queued                                |
-| `CACHE_STORE`                              | yes      | any real store (`database` locally) — pricing is cached 5 min                              |
+| Variable                                                                              | Required | Purpose                                                                                                                                                            |
+| ------------------------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `IMAGE_PROVIDER`                                                                      | yes      | Provider driver — `pixelforge`                                                                                                                                     |
+| `PIXELFORGE_BASE_URL`                                                                 | yes      | API base **including `/v1`**, e.g. `https://pixelforge.promptedit.dev/v1`                                                                                          |
+| `PIXELFORGE_API_KEY`                                                                  | yes      | Bearer key for all provider calls                                                                                                                                  |
+| `PIXELFORGE_WEBHOOK_SECRET`                                                           | yes      | HMAC secret for `POST /webhooks/pixelforge` signature verification                                                                                                 |
+| `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD`                                            | no       | Opt-in: `AdminUserSeeder` creates this admin on `db:seed`. Never promote an existing user.                                                                         |
+| `SEED_USER_EMAIL` / `SEED_USER_PASSWORD` / `SEED_USER_NAME` / `SEED_USER_CREDITS_USD` | no       | Opt-in: `DemoUserSeeder` creates this pre-verified demo user and optionally funds its wallet (credits in USD, default `0.00`). Skips silently if the email exists. |
+| `QUEUE_CONNECTION`                                                                    | yes      | `database` — webhook processing + reconciliation are queued                                                                                                        |
+| `CACHE_STORE`                                                                         | yes      | any real store (`database` locally) — pricing is cached 5 min                                                                                                      |
 
 ## Run
 

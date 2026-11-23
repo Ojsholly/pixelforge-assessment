@@ -26,8 +26,8 @@ Seed accounts exist on the live demo and are created locally by `db:seed`
 (the `SEED_*` env vars ship as defaults in `.env.example` — committed on
 purpose for this take-home; rotate them for any real deployment):
 
-| Account    | Email                     | Password          | Notes                              |
-| ---------- | ------------------------- | ----------------- | ---------------------------------- |
+| Account    | Email                     | Password            | Notes                              |
+| ---------- | ------------------------- | ------------------- | ---------------------------------- |
 | Demo user  | `demo@pixelforge.studio`  | `Demo-Studio-2026!` | Pre-verified, $25.00 wallet credit |
 | Demo admin | `admin@pixelforge.studio` | `Demo-Admin-2026!`  | Access to `/admin/report`          |
 
