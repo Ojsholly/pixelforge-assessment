@@ -8,7 +8,7 @@ import {
     Sparkles,
     Trash2,
 } from '@lucide/vue';
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import InputError from '@/components/InputError.vue';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -181,8 +181,21 @@ watch(
     { deep: true },
 );
 
+function handleVisibilityChange(): void {
+    if (document.visibilityState === 'visible') {
+        void refreshEstimate();
+    }
+}
+
 onMounted(() => {
     void refreshEstimate();
+    // Re-estimate when returning from the credits tab so a top-up lifts the
+    // insufficient-balance block without touching the form again.
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+});
+
+onUnmounted(() => {
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
 });
 
 function addReferenceImage(): void {

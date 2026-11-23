@@ -27,6 +27,12 @@ final readonly class WalletService
             /** @var Wallet $wallet */
             $wallet = Wallet::query()->firstOrCreate(['user_id' => $user->id]);
 
+            // The inserted row takes balance from the DB default (0) — reload so
+            // consumers never read a null balance off the in-memory model.
+            if ($wallet->wasRecentlyCreated) {
+                $wallet->refresh();
+            }
+
             return $wallet;
         } catch (UniqueConstraintViolationException) {
             // A concurrent request won the insert race — fetch the winner's row.

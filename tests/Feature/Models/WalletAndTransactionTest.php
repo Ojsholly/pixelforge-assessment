@@ -6,6 +6,7 @@ use App\Models\Generation;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Models\Wallet;
+use App\Services\WalletService;
 use App\Support\Money;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
@@ -26,6 +27,19 @@ it('provisions a zero-balance wallet when a user is created', function (): void 
     expect($user->wallet)->not->toBeNull()
         ->and($user->wallet->balance)->toBe(0)
         ->and($user->wallet->formatted_balance)->toBe('$0.00');
+});
+
+it('returns a fully loaded wallet when ensureWallet provisions a new row', function (): void {
+    $user = User::factory()->create();
+    $user->wallet()->delete();
+
+    $wallet = app(WalletService::class)->ensureWallet($user);
+
+    // The DB default (0) must be synced into the returned model — a fresh
+    // firstOrCreate model would otherwise expose a null balance and crash
+    // the formatted_balance accessor.
+    expect($wallet->balance)->toBe(0)
+        ->and($wallet->formatted_balance)->toBe('$0.00');
 });
 
 it('links transactions polymorphically to generations and prevents duplicate hold entries', function (): void {
