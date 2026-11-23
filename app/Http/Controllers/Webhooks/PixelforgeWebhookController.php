@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers\Webhooks;
 
-use App\Contracts\ImageGenerationProvider;
 use App\Http\Controllers\Controller;
 use App\Jobs\ProcessWebhookEvent;
 use Illuminate\Http\JsonResponse;
@@ -12,39 +11,16 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 /**
- * Verifies the signature, persists the raw event for idempotency/audit,
- * and hands state application to ProcessWebhookEvent so the endpoint
- * stays well inside the provider's 10s delivery budget.
+ * Persists the signature-verified event (idempotency/audit) and hands
+ * state application to ProcessWebhookEvent so the endpoint stays well
+ * inside the provider's 10s delivery budget. Size and signature checks
+ * live in VerifyPixelforgeWebhookSignature.
  */
 class PixelforgeWebhookController extends Controller
 {
-    /**
-     * Real generation payloads are ~2 KB; a cap rejects floods before the
-     * body ever reaches the JSON decoder.
-     */
-    private const int MAX_PAYLOAD_BYTES = 262_144;
-
-    public function __invoke(Request $request, ImageGenerationProvider $provider): Response|JsonResponse
+    public function __invoke(Request $request): Response|JsonResponse
     {
-        // Reject oversized bodies before the raw payload is even read into
-        // memory — Content-Length is cheap; the byte count is the backstop.
-        $contentLength = $request->header('Content-Length');
-
-        if (is_string($contentLength) && ctype_digit($contentLength) && (int) $contentLength > self::MAX_PAYLOAD_BYTES) {
-            return response()->json(['message' => 'Webhook payload too large.'], 413);
-        }
-
-        $rawPayload = $request->getContent();
-
-        if (! $provider->verifyWebhookSignature($rawPayload, $request->header('Pixelforge-Signature'))) {
-            return response()->json(['message' => 'Invalid webhook signature.'], 400);
-        }
-
-        if (strlen($rawPayload) > self::MAX_PAYLOAD_BYTES) {
-            return response()->json(['message' => 'Webhook payload too large.'], 413);
-        }
-
-        $payload = json_decode($rawPayload, true);
+        $payload = json_decode($request->getContent(), true);
 
         if (! is_array($payload) || ! is_string($payload['id'] ?? null) || ! is_string($payload['type'] ?? null)) {
             return response()->json(['message' => 'Malformed webhook payload.'], 400);

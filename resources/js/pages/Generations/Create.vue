@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Head, useForm, usePage } from '@inertiajs/vue3';
+import { Head, useForm, useHttp, usePage } from '@inertiajs/vue3';
 import {
     AlertCircle,
     CheckCircle2,
@@ -74,11 +74,16 @@ const form = useForm({
 
 const referenceImages = ref<string[]>([]);
 
+const estimateHttp = useHttp({
+    prompt: '',
+    size: '',
+    quality: '',
+    reference_images: [] as string[],
+});
+
 const costEstimate = ref<CostEstimate | null>(null);
 const estimateError = ref<string | null>(null);
-const estimating = ref(false);
 let estimateTimer: ReturnType<typeof setTimeout> | null = null;
-let estimateAbortController: AbortController | null = null;
 
 const unicodeCharCount = computed(() => Array.from(form.prompt.trim()).length);
 const canAddReferenceImage = computed(() => referenceImages.value.length < 4);
@@ -116,57 +121,37 @@ function refImageError(index: number): string | undefined {
     ];
 }
 
-function getXsrfToken(): string {
-    const match = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]+)/);
-
-    return match ? decodeURIComponent(match[1]) : '';
-}
-
-async function refreshEstimate(): Promise<void> {
-    estimating.value = true;
+function refreshEstimate(): void {
     estimateError.value = null;
 
-    const cleanRefs = referenceImages.value
+    estimateHttp.prompt = form.prompt;
+    estimateHttp.size = form.size;
+    estimateHttp.quality = form.quality;
+    estimateHttp.reference_images = referenceImages.value
         .map((url) => url.trim())
         .filter((url) => url !== '');
 
-    try {
-        const response = await fetch(estimate.url(), {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: {
-                'Content-Type': 'application/json',
-                Accept: 'application/json',
-                'X-XSRF-TOKEN': getXsrfToken(),
-            },
-            body: JSON.stringify({
-                prompt: form.prompt,
-                size: form.size,
-                quality: form.quality,
-                reference_images: cleanRefs,
-            }),
-        });
+    const fail = (message: string): void => {
+        estimateError.value = message;
+        costEstimate.value = null;
+    };
 
-        const data = await response.json();
-
-        if (!response.ok) {
-            estimateError.value =
-                data.message ?? 'Unable to calculate estimate.';
-            costEstimate.value = null;
-
-            return;
-        }
-
-        costEstimate.value = data as CostEstimate;
-        // A fresh estimate supersedes a stale backend balance rejection — the
-        // insufficient-funds check now reads this payload's balance. `balance`
-        // is a server error key, not a form field, so clearErrors won't accept it.
-        delete (form.errors as Record<string, string | undefined>).balance;
-    } catch {
-        estimateError.value = 'Network error while fetching estimate.';
-    } finally {
-        estimating.value = false;
-    }
+    estimateHttp.submit(estimate(), {
+        onSuccess: (data) => {
+            costEstimate.value = data as CostEstimate;
+            // A fresh estimate supersedes a stale backend balance rejection — the
+            // insufficient-funds check now reads this payload's balance. `balance`
+            // is a server error key, not a form field, so clearErrors won't accept it.
+            delete (form.errors as Record<string, string | undefined>).balance;
+        },
+        onError: () => fail('Unable to calculate estimate.'),
+        onHttpException: (response) =>
+            fail(
+                (response.data as { message?: string })?.message ??
+                    'Unable to calculate estimate.',
+            ),
+        onNetworkError: () => fail('Network error while fetching estimate.'),
+    });
 }
 
 function scheduleEstimate(): void {
@@ -174,9 +159,9 @@ function scheduleEstimate(): void {
         clearTimeout(estimateTimer);
     }
 
-    estimateTimer = setTimeout(() => {
-        void refreshEstimate();
-    }, 250);
+    estimateHttp.cancel();
+
+    estimateTimer = setTimeout(refreshEstimate, 250);
 }
 
 watch(
@@ -187,12 +172,12 @@ watch(
 
 function handleVisibilityChange(): void {
     if (document.visibilityState === 'visible') {
-        void refreshEstimate();
+        refreshEstimate();
     }
 }
 
 onMounted(() => {
-    void refreshEstimate();
+    refreshEstimate();
     // Re-estimate when returning from the credits tab so a top-up lifts the
     // insufficient-balance block without touching the form again.
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -528,7 +513,7 @@ function submit(): void {
 
                         <div v-else class="text-sm text-muted-foreground">
                             {{
-                                estimating
+                                estimateHttp.processing
                                     ? 'Calculating...'
                                     : 'Enter a prompt to preview cost.'
                             }}

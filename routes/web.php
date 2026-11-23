@@ -7,11 +7,13 @@ use App\Http\Controllers\Generations\EstimateGenerationController;
 use App\Http\Controllers\Generations\GenerationController;
 use App\Http\Controllers\Webhooks\PixelforgeWebhookController;
 use App\Http\Middleware\EnsureUserIsAdmin;
+use App\Http\Middleware\VerifyPixelforgeWebhookSignature;
 use Illuminate\Support\Facades\Route;
 
 Route::inertia('/', 'Welcome')->name('home');
 
 Route::post('webhooks/pixelforge', PixelforgeWebhookController::class)
+    ->middleware(VerifyPixelforgeWebhookSignature::class)
     ->name('webhooks.pixelforge');
 
 Route::middleware(['auth', 'verified'])->group(function (): void {
