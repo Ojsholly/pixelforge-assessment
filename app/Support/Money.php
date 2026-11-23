@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use Illuminate\Support\Str;
 use InvalidArgumentException;
 
 final class Money
@@ -28,11 +29,11 @@ final class Money
         $whole = (int) $matches[2];
         $fracRaw = $matches[3] ?? '';
 
-        if (strlen($fracRaw) > 9) {
+        if (Str::length($fracRaw) > 9) {
             throw new InvalidArgumentException("USD amount exceeds 9 decimal places (nanodollars): [{$usd}].");
         }
 
-        $fracPadded = str_pad($fracRaw, 9, '0', STR_PAD_RIGHT);
+        $fracPadded = Str::padRight($fracRaw, 9, '0');
         $nanodollars = ($whole * self::NANODOLLARS_PER_USD) + (int) $fracPadded;
 
         return $negative ? -$nanodollars : $nanodollars;
@@ -47,7 +48,7 @@ final class Money
         $abs = abs($nanodollars);
 
         $whole = intdiv($abs, self::NANODOLLARS_PER_USD);
-        $frac = str_pad((string) ($abs % self::NANODOLLARS_PER_USD), 9, '0', STR_PAD_LEFT);
+        $frac = Str::padLeft((string) ($abs % self::NANODOLLARS_PER_USD), 9, '0');
 
         return ($negative ? '-' : '')."{$whole}.{$frac}";
     }
@@ -64,8 +65,8 @@ final class Money
 
         $trimmedFrac = rtrim(substr($frac, 0, $maxDecimals), '0');
 
-        if (strlen($trimmedFrac) < $minDecimals) {
-            $trimmedFrac = str_pad($trimmedFrac, $minDecimals, '0', STR_PAD_RIGHT);
+        if (Str::length($trimmedFrac) < $minDecimals) {
+            $trimmedFrac = Str::padRight($trimmedFrac, $minDecimals, '0');
         }
 
         $formattedWhole = number_format((int) $whole);

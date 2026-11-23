@@ -1,6 +1,13 @@
 <script setup lang="ts">
 import { Head, Link, router, usePage } from '@inertiajs/vue3';
-import { AlertCircle, ImageOff, Plus, RefreshCw } from '@lucide/vue';
+import {
+    AlertCircle,
+    ArrowDownWideNarrow,
+    ArrowUpNarrowWide,
+    ImageOff,
+    Plus,
+    RefreshCw,
+} from '@lucide/vue';
 import { computed, onMounted, onUnmounted, watch } from 'vue';
 import GenerationStatusBadge from '@/components/GenerationStatusBadge.vue';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -54,7 +61,7 @@ type StatusCounts = {
 const props = defineProps<{
     generations: PaginatedGenerations;
     counts: StatusCounts;
-    filters: { status: string | null };
+    filters: { status: string | null; sort: string };
 }>();
 
 defineOptions({
@@ -121,7 +128,29 @@ onUnmounted(() => {
 });
 
 function filterHref(status: string | null): string {
-    return status === null ? index.url() : index.url({ query: { status } });
+    const query: { status?: string; sort?: string } = {};
+
+    if (status !== null) {
+        query.status = status;
+    }
+    if (props.filters.sort !== '-created_at') {
+        query.sort = props.filters.sort;
+    }
+
+    return index.url({ query });
+}
+
+function sortHref(): string {
+    const query: { status?: string; sort?: string } = {};
+
+    if (props.filters.status !== null) {
+        query.status = props.filters.status;
+    }
+    if (props.filters.sort === '-created_at') {
+        query.sort = 'created_at';
+    }
+
+    return index.url({ query });
 }
 
 function refreshGeneration(generation: GenerationSummary): void {
@@ -187,6 +216,18 @@ function paginationLabel(label: string): string {
                     "
                     >{{ tab.count }}</span
                 >
+            </Link>
+            <Link
+                :href="sortHref()"
+                preserve-scroll
+                class="ml-auto inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+            >
+                <ArrowDownWideNarrow
+                    v-if="filters.sort === '-created_at'"
+                    class="size-3.5"
+                />
+                <ArrowUpNarrowWide v-else class="size-3.5" />
+                {{ filters.sort === '-created_at' ? 'Newest' : 'Oldest' }}
             </Link>
         </div>
 

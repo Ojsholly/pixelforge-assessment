@@ -12,6 +12,7 @@ use App\States\Generation\Queued;
 use App\States\Generation\Succeeded;
 use App\Support\Money;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 use RuntimeException;
 
 function signWebhookPayload(string $rawBody, string $secret = 'whsec_test_secret', ?int $timestamp = null): string
@@ -39,7 +40,7 @@ it('rejects missing, invalid, tampered, or expired webhook signatures with 400',
     // Invalid signature
     $this->call('POST', route('webhooks.pixelforge'), [], [], [], [
         'CONTENT_TYPE' => 'application/json',
-        'HTTP_PIXELFORGE_SIGNATURE' => 't='.time().',v1='.str_repeat('a', 64),
+        'HTTP_PIXELFORGE_SIGNATURE' => 't='.time().',v1='.Str::repeat('a', 64),
     ], $payload)->assertStatus(400);
 
     // Tampered body
@@ -47,7 +48,7 @@ it('rejects missing, invalid, tampered, or expired webhook signatures with 400',
     $this->call('POST', route('webhooks.pixelforge'), [], [], [], [
         'CONTENT_TYPE' => 'application/json',
         'HTTP_PIXELFORGE_SIGNATURE' => $validSigForOriginal,
-    ], str_replace('evt_bad_1', 'evt_tampered', $payload))->assertStatus(400);
+    ], Str::replace('evt_bad_1', 'evt_tampered', $payload))->assertStatus(400);
 
     // Expired timestamp (> 300s old)
     $expiredSig = signWebhookPayload($payload, 'whsec_test_secret', time() - 301);

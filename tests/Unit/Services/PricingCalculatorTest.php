@@ -6,6 +6,7 @@ use App\Enums\ImageQuality;
 use App\Enums\ImageSize;
 use App\Services\PricingCalculator;
 use App\Support\Money;
+use Illuminate\Support\Str;
 
 function samplePricingData(): PricingData
 {
@@ -43,7 +44,7 @@ it('calculates exact nanodollar min and max estimates with 25% markup', function
     // high 1536x1024 => 6240 output tokens ($0.249600000)
     // high reasoning => 500..6000 tokens ($0.006250000..$0.075000000)
     $estimate = $calculator->estimate(
-        prompt: str_repeat('a', 400),
+        prompt: Str::repeat('a', 400),
         size: ImageSize::Landscape,
         quality: ImageQuality::High,
         referenceImages: ['https://example.com/1.png', 'https://example.com/2.png'],

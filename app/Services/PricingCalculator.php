@@ -8,6 +8,7 @@ use App\Data\Pixelforge\ProviderUsageData;
 use App\Enums\ImageQuality;
 use App\Enums\ImageSize;
 use App\Support\Money;
+use Illuminate\Support\Str;
 
 final class PricingCalculator
 {
@@ -21,7 +22,7 @@ final class PricingCalculator
         array $referenceImages,
         PricingData $pricing,
     ): CostEstimateData {
-        $charCount = mb_strlen($prompt, 'UTF-8');
+        $charCount = Str::length($prompt);
         $charsPerToken = max(1, $pricing->charactersPerTextToken);
         $estimatedTextTokens = (int) ceil($charCount / $charsPerToken);
 

@@ -4,10 +4,13 @@ namespace App\Http\Controllers\Generations;
 
 use App\Actions\Generations\ApplyGenerationStateAction;
 use App\Actions\Generations\CreateGenerationAction;
+use App\Concerns\UsesPipeline;
 use App\Contracts\ImageGenerationProvider;
 use App\Enums\GenerationStatus;
 use App\Enums\ImageQuality;
 use App\Enums\ImageSize;
+use App\Filters\Generations\StatusFilter;
+use App\Filters\Sort;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Generations\StoreGenerationRequest;
 use App\Models\Generation;
@@ -21,21 +24,14 @@ use Inertia\Response;
 
 class GenerationController extends Controller
 {
+    use UsesPipeline;
+
     public function index(Request $request, GenerationPresenter $presenter): Response
     {
         /** @var User $user */
         $user = $request->user();
 
-        $statusQuery = $request->query('status');
-        $statusFilter = GenerationStatus::tryFrom(is_string($statusQuery) ? $statusQuery : '');
-
-        $generations = Generation::query()
-            ->where('user_id', $user->id)
-            ->when(
-                $statusFilter !== null,
-                fn ($query) => $query->where('status', $statusFilter->value),
-            )
-            ->latest('id')
+        $generations = $this->pipeline(Generation::query()->where('user_id', $user->id))
             ->paginate(12)
             ->withQueryString()
             ->through($presenter->summary(...));
@@ -43,7 +39,10 @@ class GenerationController extends Controller
         return Inertia::render('Generations/Index', [
             'generations' => $generations,
             'counts' => $presenter->statusCounts($user),
-            'filters' => ['status' => $statusFilter?->value],
+            'filters' => [
+                'status' => $this->statusFilter()?->value,
+                'sort' => $this->sortFilter()->current(),
+            ],
         ]);
     }
 
@@ -106,5 +105,34 @@ class GenerationController extends Controller
         );
 
         return to_route('generations.create')->with('status', "Generation #{$generation->id} queued.");
+    }
+
+    /**
+     * @return array<int, object>
+     */
+    protected function filters(): array
+    {
+        return [
+            new StatusFilter($this->statusFilter()),
+            $this->sortFilter(),
+        ];
+    }
+
+    private function statusFilter(): ?GenerationStatus
+    {
+        $status = request()->query('status');
+
+        return is_string($status) ? GenerationStatus::tryFrom($status) : null;
+    }
+
+    private function sortFilter(): Sort
+    {
+        $sort = request()->query('sort');
+
+        return new Sort(
+            sort: is_string($sort) ? $sort : null,
+            allowedColumns: ['created_at'],
+            defaultColumn: 'created_at',
+        );
     }
 }

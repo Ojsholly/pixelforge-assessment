@@ -1,6 +1,13 @@
 <script setup lang="ts">
 import { Head, Link, useForm, usePage } from '@inertiajs/vue3';
-import { CheckCircle2, Coins, Wallet } from '@lucide/vue';
+import {
+    ArrowDown,
+    ArrowUp,
+    ArrowUpDown,
+    CheckCircle2,
+    Coins,
+    Wallet,
+} from '@lucide/vue';
 import { computed } from 'vue';
 import InputError from '@/components/InputError.vue';
 import { Badge } from '@/components/ui/badge';
@@ -43,8 +50,15 @@ type PaginatedTransactions = {
     total: number;
 };
 
-defineProps<{
+type Filters = {
+    type: string | null;
+    direction: string | null;
+    sort: string;
+};
+
+const props = defineProps<{
     transactions: PaginatedTransactions;
+    filters: Filters;
 }>();
 
 defineOptions({
@@ -73,6 +87,75 @@ const typeLabels: Record<string, string> = {
     capture: 'Capture',
     release: 'Refund',
 };
+
+const typeTabs = [
+    { key: null, label: 'All types' },
+    { key: 'purchase', label: 'Purchases' },
+    { key: 'hold', label: 'Holds' },
+    { key: 'capture', label: 'Captures' },
+    { key: 'release', label: 'Refunds' },
+];
+
+const directionTabs = [
+    { key: null, label: 'All' },
+    { key: 'credit', label: 'Credits' },
+    { key: 'debit', label: 'Debits' },
+];
+
+function ledgerQuery(overrides: {
+    type?: string | null;
+    direction?: string | null;
+    sort?: string;
+}): { type?: string; direction?: string; sort?: string } {
+    const type =
+        overrides.type !== undefined ? overrides.type : props.filters.type;
+    const direction =
+        overrides.direction !== undefined
+            ? overrides.direction
+            : props.filters.direction;
+    const sort =
+        overrides.sort !== undefined ? overrides.sort : props.filters.sort;
+
+    const query: { type?: string; direction?: string; sort?: string } = {};
+
+    if (type !== null) {
+        query.type = type;
+    }
+    if (direction !== null) {
+        query.direction = direction;
+    }
+    if (sort !== '-created_at') {
+        query.sort = sort;
+    }
+
+    return query;
+}
+
+function filterHref(type: string | null, direction: string | null): string {
+    return index.url({ query: ledgerQuery({ type, direction }) });
+}
+
+function sortHref(column: string): string {
+    const isCurrent =
+        props.filters.sort === column || props.filters.sort === `-${column}`;
+    const descending = isCurrent ? !props.filters.sort.startsWith('-') : true;
+
+    return index.url({
+        query: ledgerQuery({
+            sort: descending ? `-${column}` : column,
+        }),
+    });
+}
+
+function sortIcon(column: string): typeof ArrowUpDown {
+    if (props.filters.sort === `-${column}`) {
+        return ArrowDown;
+    }
+    if (props.filters.sort === column) {
+        return ArrowUp;
+    }
+    return ArrowUpDown;
+}
 
 function buyPackage(amountUsd: string): void {
     form.amount_usd = amountUsd;
@@ -178,19 +261,72 @@ function paginationLabel(label: string): string {
             <CardHeader>
                 <CardTitle>Transaction History</CardTitle>
                 <CardDescription>
-                    Every credit and debit applied to your wallet, newest first.
+                    Every credit and debit applied to your wallet.
                 </CardDescription>
             </CardHeader>
-            <CardContent class="p-0">
+            <CardContent class="flex flex-col gap-4 p-0">
+                <div
+                    class="flex flex-wrap items-center gap-x-6 gap-y-2 border-t border-border px-4 pt-4"
+                >
+                    <div class="flex flex-wrap items-center gap-2">
+                        <Link
+                            v-for="tab in typeTabs"
+                            :key="tab.label"
+                            :href="filterHref(tab.key, filters.direction)"
+                            preserve-scroll
+                            class="rounded-full border px-3 py-1 text-xs transition-colors"
+                            :class="
+                                filters.type === tab.key
+                                    ? 'border-primary bg-primary text-primary-foreground'
+                                    : 'border-border bg-background text-muted-foreground hover:text-foreground'
+                            "
+                        >
+                            {{ tab.label }}
+                        </Link>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-2">
+                        <span class="text-xs text-muted-foreground"
+                            >Direction:</span
+                        >
+                        <Link
+                            v-for="tab in directionTabs"
+                            :key="tab.label"
+                            :href="filterHref(filters.type, tab.key)"
+                            preserve-scroll
+                            class="rounded-full border px-3 py-1 text-xs transition-colors"
+                            :class="
+                                filters.direction === tab.key
+                                    ? 'border-primary bg-primary text-primary-foreground'
+                                    : 'border-border bg-background text-muted-foreground hover:text-foreground'
+                            "
+                        >
+                            {{ tab.label }}
+                        </Link>
+                    </div>
+                </div>
+
                 <div
                     v-if="transactions.data.length === 0"
                     class="flex flex-col items-center gap-2 border-t border-dashed border-border p-8 text-center"
                 >
                     <Coins class="size-6 text-muted-foreground" />
                     <p class="text-sm text-muted-foreground">
-                        No transactions yet — buy credits or generate an image
-                        to see ledger entries.
+                        <template v-if="filters.type || filters.direction">
+                            No transactions match the current filters.
+                        </template>
+                        <template v-else>
+                            No transactions yet — buy credits or generate an
+                            image to see ledger entries.
+                        </template>
                     </p>
+                    <Button
+                        v-if="filters.type || filters.direction"
+                        as-child
+                        variant="outline"
+                        size="sm"
+                    >
+                        <Link :href="index()">Clear filters</Link>
+                    </Button>
                 </div>
                 <div v-else class="overflow-x-auto">
                     <table class="w-full text-sm">
@@ -198,16 +334,48 @@ function paginationLabel(label: string): string {
                             <tr
                                 class="border-y border-border text-left text-xs text-muted-foreground"
                             >
-                                <th class="px-4 py-2 font-medium">Date</th>
+                                <th class="px-4 py-2 font-medium">
+                                    <Link
+                                        :href="sortHref('created_at')"
+                                        preserve-scroll
+                                        class="inline-flex items-center gap-1 hover:text-foreground"
+                                    >
+                                        Date
+                                        <component
+                                            :is="sortIcon('created_at')"
+                                            class="size-3"
+                                        />
+                                    </Link>
+                                </th>
                                 <th class="px-4 py-2 font-medium">Type</th>
                                 <th class="px-4 py-2 font-medium">
                                     Description
                                 </th>
                                 <th class="px-4 py-2 text-right font-medium">
-                                    Amount
+                                    <Link
+                                        :href="sortHref('amount')"
+                                        preserve-scroll
+                                        class="inline-flex items-center justify-end gap-1 hover:text-foreground"
+                                    >
+                                        Amount
+                                        <component
+                                            :is="sortIcon('amount')"
+                                            class="size-3"
+                                        />
+                                    </Link>
                                 </th>
                                 <th class="px-4 py-2 text-right font-medium">
-                                    Balance After
+                                    <Link
+                                        :href="sortHref('balance_after')"
+                                        preserve-scroll
+                                        class="inline-flex items-center justify-end gap-1 hover:text-foreground"
+                                    >
+                                        Balance After
+                                        <component
+                                            :is="sortIcon('balance_after')"
+                                            class="size-3"
+                                        />
+                                    </Link>
                                 </th>
                             </tr>
                         </thead>

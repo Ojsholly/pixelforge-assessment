@@ -4,6 +4,7 @@ namespace App\Rules;
 
 use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
+use Illuminate\Support\Str;
 
 final class SafeExternalUrl implements ValidationRule
 {
@@ -48,7 +49,7 @@ final class SafeExternalUrl implements ValidationRule
             return;
         }
 
-        if ($host === 'localhost' || str_ends_with($host, '.local') || str_ends_with($host, '.internal')) {
+        if ($host === 'localhost' || Str::endsWith($host, '.local') || Str::endsWith($host, '.internal')) {
             $fail('The :attribute must point to a public host.');
 
             return;
@@ -107,7 +108,7 @@ final class SafeExternalUrl implements ValidationRule
             return $url;
         }
 
-        return str_replace($originalHost, $asciiHost, $url);
+        return Str::replace($originalHost, $asciiHost, $url);
     }
 
     private function isPublicIp(string $ip): bool
@@ -117,7 +118,7 @@ final class SafeExternalUrl implements ValidationRule
         }
 
         $packed = @inet_pton($ip);
-        if ($packed !== false && strlen($packed) === 16 && str_starts_with($packed, str_repeat("\x00", 10)."\xff\xff")) {
+        if ($packed !== false && strlen($packed) === 16 && Str::startsWith($packed, Str::repeat("\x00", 10)."\xff\xff")) {
             $mappedIpv4 = inet_ntop(substr($packed, 12));
 
             return $mappedIpv4 !== false

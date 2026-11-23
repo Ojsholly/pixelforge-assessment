@@ -13,6 +13,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class PixelforgeWebhookController extends Controller
 {
@@ -40,7 +41,7 @@ class PixelforgeWebhookController extends Controller
         $providerGenerationId = is_array($object) && is_string($object['id'] ?? null) ? $object['id'] : null;
         $deliveryAttempt = max(1, (int) ($request->header('Pixelforge-Delivery-Attempt') ?? 1));
 
-        if (mb_strlen($eventId, 'UTF-8') > 64 || ($providerGenerationId !== null && mb_strlen($providerGenerationId, 'UTF-8') > 64)) {
+        if (Str::length($eventId) > 64 || ($providerGenerationId !== null && Str::length($providerGenerationId) > 64)) {
             return response()->json(['message' => 'Malformed webhook identifier.'], 400);
         }
 

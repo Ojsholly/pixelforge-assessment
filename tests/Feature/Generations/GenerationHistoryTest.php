@@ -63,6 +63,39 @@ it('filters generations by status and echoes the active filter', function (): vo
         );
 });
 
+it('sorts generations newest first by default and oldest first on demand', function (): void {
+    $user = User::factory()->create();
+
+    $oldest = Generation::factory()->for($user)->create(['created_at' => '2026-01-01 12:00:00']);
+    $newest = Generation::factory()->for($user)->create(['created_at' => '2026-01-03 12:00:00']);
+    Generation::factory()->for($user)->create(['created_at' => '2026-01-02 12:00:00']);
+
+    $this->actingAs($user)
+        ->get(route('generations.index'))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('generations.data.0.id', $newest->id)
+            ->where('filters.sort', '-created_at')
+        );
+
+    $this->actingAs($user)
+        ->get(route('generations.index', ['sort' => 'created_at']))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('generations.data.0.id', $oldest->id)
+            ->where('generations.data.2.id', $newest->id)
+            ->where('filters.sort', 'created_at')
+        );
+
+    $this->actingAs($user)
+        ->get(route('generations.index', ['sort' => 'bogus']))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->where('generations.data.0.id', $newest->id)
+            ->where('filters.sort', '-created_at')
+        );
+});
+
 it('ignores an invalid status filter', function (): void {
     $user = User::factory()->create();
     Generation::factory()->count(2)->for($user)->create();

@@ -10,6 +10,7 @@ use App\States\Generation\Succeeded;
 use App\Support\Money;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 
 it('blocks submission when the wallet balance is below the estimated max cost', function (): void {
     seedPricingCacheAndKey();
@@ -38,7 +39,7 @@ it('blocks submission when the wallet balance is below the estimated max cost', 
 
     Http::assertNotSent(
         fn (Request $request) => $request->method() === 'POST'
-            && str_ends_with($request->url(), '/generations'),
+            && Str::endsWith($request->url(), '/generations'),
     );
 });
 

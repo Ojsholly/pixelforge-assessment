@@ -3,6 +3,7 @@
 use App\Services\Pixelforge\PixelforgeProvider;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 /*
@@ -19,6 +20,20 @@ use Tests\TestCase;
 pest()->extend(TestCase::class)
     ->use(RefreshDatabase::class)
     ->in('Feature');
+
+/*
+|--------------------------------------------------------------------------
+| Global Hooks
+|--------------------------------------------------------------------------
+|
+| Every outbound HTTP call must be faked per-test. A stray request that
+| misses the fake patterns throws instead of silently hitting the network.
+|
+*/
+
+beforeEach(function (): void {
+    Http::preventStrayRequests();
+});
 
 /*
 |--------------------------------------------------------------------------

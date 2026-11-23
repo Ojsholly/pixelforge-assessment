@@ -5,6 +5,7 @@ namespace App\Rules;
 use App\Support\PromptSanitizer;
 use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
+use Illuminate\Support\Str;
 
 final class ValidPrompt implements ValidationRule
 {
@@ -16,7 +17,7 @@ final class ValidPrompt implements ValidationRule
             return;
         }
 
-        $normalized = str_replace(["\r\n", "\r"], "\n", $value);
+        $normalized = Str::replace(["\r\n", "\r"], "\n", $value);
         $stripped = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $normalized);
         $trimmed = $stripped !== null ? trim($stripped) : '';
 
@@ -26,7 +27,7 @@ final class ValidPrompt implements ValidationRule
             return;
         }
 
-        if (mb_strlen($trimmed, 'UTF-8') > PromptSanitizer::MAX_PROMPT_LENGTH) {
+        if (Str::length($trimmed) > PromptSanitizer::MAX_PROMPT_LENGTH) {
             $fail('The :attribute may not exceed '.PromptSanitizer::MAX_PROMPT_LENGTH.' characters.');
         }
     }

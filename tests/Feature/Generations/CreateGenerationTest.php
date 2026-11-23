@@ -8,6 +8,7 @@ use App\States\Generation\Queued;
 use App\Support\Money;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 
 it('requires authentication to view or submit generations', function (): void {
     $this->get(route('generations.create'))->assertRedirect(route('login'));
@@ -65,7 +66,7 @@ it('creates a generation with idempotency key, metadata, and wallet hold on 202'
         ->and($generation->transactions()->where('type', TransactionType::Hold)->count())->toBe(1);
 
     Http::assertSent(function (Request $request) use ($generation, $user): bool {
-        if (! str_ends_with($request->url(), '/generations')) {
+        if (! Str::endsWith($request->url(), '/generations')) {
             return false;
         }
 
@@ -162,7 +163,7 @@ it('retries 503 overloaded with the same idempotency key and releases hold if re
     $seenKeys = [];
 
     Http::fake(function (Request $request) use (&$seenKeys) {
-        if (str_ends_with($request->url(), '/pricing')) {
+        if (Str::endsWith($request->url(), '/pricing')) {
             return Http::response(validPricingPayload(), 200);
         }
 
