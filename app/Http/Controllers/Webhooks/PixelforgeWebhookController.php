@@ -2,30 +2,38 @@
 
 namespace App\Http\Controllers\Webhooks;
 
-use App\Actions\Generations\ApplyGenerationStateAction;
 use App\Contracts\ImageGenerationProvider;
-use App\Data\Pixelforge\ProviderGenerationData;
-use App\Enums\WebhookEventType;
 use App\Http\Controllers\Controller;
-use App\Models\Generation;
-use App\Models\WebhookEvent;
+use App\Jobs\ProcessWebhookEvent;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
+/**
+ * Verifies the signature, persists the raw event for idempotency/audit,
+ * and hands state application to ProcessWebhookEvent so the endpoint
+ * stays well inside the provider's 10s delivery budget.
+ */
 class PixelforgeWebhookController extends Controller
 {
-    public function __invoke(
-        Request $request,
-        ImageGenerationProvider $provider,
-        ApplyGenerationStateAction $applyState,
-    ): Response|JsonResponse {
+    /**
+     * Real generation payloads are ~2 KB; a cap rejects floods before the
+     * body ever reaches the JSON decoder.
+     */
+    private const int MAX_PAYLOAD_BYTES = 262_144;
+
+    public function __invoke(Request $request, ImageGenerationProvider $provider): Response|JsonResponse
+    {
         $rawPayload = $request->getContent();
 
         if (! $provider->verifyWebhookSignature($rawPayload, $request->header('Pixelforge-Signature'))) {
             return response()->json(['message' => 'Invalid webhook signature.'], 400);
+        }
+
+        if (Str::length($rawPayload) > self::MAX_PAYLOAD_BYTES) {
+            return response()->json(['message' => 'Webhook payload too large.'], 413);
         }
 
         $payload = json_decode($rawPayload, true);
@@ -47,7 +55,8 @@ class PixelforgeWebhookController extends Controller
 
         $now = now();
 
-        DB::table('webhook_events')->insertOrIgnore([
+        $inserted = DB::table('webhook_events')->insertOrIgnore([
+            'provider' => (string) config('services.image_provider.driver', 'pixelforge'),
             'provider_event_id' => $eventId,
             'event_type' => $eventType,
             'provider_generation_id' => $providerGenerationId,
@@ -58,80 +67,20 @@ class PixelforgeWebhookController extends Controller
             'updated_at' => $now,
         ]);
 
-        DB::transaction(function () use ($eventId, $eventType, $object, $providerGenerationId, $deliveryAttempt, $applyState): void {
-            /** @var WebhookEvent $event */
-            $event = WebhookEvent::query()
+        if ($inserted === 0) {
+            // Duplicate delivery: keep the highest observed attempt for
+            // observability (the job's unique lock may dedupe dispatch).
+            DB::table('webhook_events')
                 ->where('provider_event_id', $eventId)
-                ->lockForUpdate()
-                ->firstOrFail();
+                ->where('delivery_attempt', '<', $deliveryAttempt)
+                ->update(['delivery_attempt' => $deliveryAttempt, 'updated_at' => $now]);
+        }
 
-            if ($event->processed_at !== null) {
-                return;
-            }
-
-            $event->delivery_attempt = max($event->delivery_attempt, $deliveryAttempt);
-
-            $resolvedType = WebhookEventType::tryFrom($eventType);
-            $isGenerationEvent = in_array($resolvedType, [
-                WebhookEventType::GenerationProcessing,
-                WebhookEventType::GenerationSucceeded,
-                WebhookEventType::GenerationFailed,
-            ], true);
-
-            if (! $isGenerationEvent || $object === null) {
-                $event->processed_at = now();
-                $event->save();
-
-                return;
-            }
-
-            $generation = $this->findGeneration($providerGenerationId, $object);
-
-            if ($generation instanceof Generation) {
-                /** @var array<string, mixed> $object */
-                $providerData = rescue(
-                    fn (): ProviderGenerationData => ProviderGenerationData::fromArray($object),
-                    report: true,
-                );
-
-                if ($providerData instanceof ProviderGenerationData) {
-                    $applyState->execute($generation, $providerData);
-                }
-            }
-
-            $event->processed_at = now();
-            $event->save();
-        });
+        // ShouldBeUnique drops redeliveries that arrive while a copy is
+        // queued or running; the processed_at guard inside the job covers
+        // redelivery after completion.
+        ProcessWebhookEvent::dispatch($eventId);
 
         return response()->noContent();
-    }
-
-    /**
-     * @param  array<mixed, mixed>  $object
-     */
-    private function findGeneration(?string $providerGenerationId, array $object): ?Generation
-    {
-        if ($providerGenerationId !== null) {
-            $byProvider = Generation::query()->where('provider_id', $providerGenerationId)->first();
-
-            if ($byProvider instanceof Generation) {
-                return $byProvider;
-            }
-        }
-
-        $metadata = is_array($object['metadata'] ?? null) ? $object['metadata'] : [];
-        $localId = $metadata['local_generation_id'] ?? null;
-
-        // The metadata fallback may only claim a generation that was never
-        // bound to a provider id — otherwise a stale event could attach its
-        // result to an unrelated row that recycled the local id.
-        if ((is_int($localId) || (is_string($localId) && ctype_digit($localId))) && (int) $localId > 0) {
-            return Generation::query()
-                ->whereKey((int) $localId)
-                ->whereNull('provider_id')
-                ->first();
-        }
-
-        return null;
     }
 }

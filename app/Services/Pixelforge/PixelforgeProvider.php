@@ -30,7 +30,7 @@ final class PixelforgeProvider implements ImageGenerationProvider
             $response = $this->send(
                 client: $this->publicClient(),
                 retries: 2,
-                shouldRetry: self::isTransientError(...),
+                shouldRetry: $this->isTransientError(...),
                 connectionMessage: 'Could not connect to Pixelforge pricing endpoint.',
                 failureMessage: 'Failed to fetch Pixelforge pricing.',
                 request: fn (PendingRequest $client): Response => $client->get('/pricing'),
@@ -65,7 +65,7 @@ final class PixelforgeProvider implements ImageGenerationProvider
         $response = $this->send(
             client: $this->authenticatedClient()->withHeaders(['Idempotency-Key' => $input->idempotencyKey]),
             retries: 3,
-            shouldRetry: self::isOverloadedError(...),
+            shouldRetry: $this->isOverloadedError(...),
             connectionMessage: 'Could not connect to Pixelforge generation endpoint.',
             failureMessage: 'Failed to create Pixelforge generation.',
             request: fn (PendingRequest $client): Response => $client->post('/generations', $body),
@@ -79,7 +79,7 @@ final class PixelforgeProvider implements ImageGenerationProvider
         $response = $this->send(
             client: $this->authenticatedClient(),
             retries: 2,
-            shouldRetry: self::isTransientError(...),
+            shouldRetry: $this->isTransientError(...),
             connectionMessage: 'Could not connect to Pixelforge generation endpoint.',
             failureMessage: 'Failed to fetch Pixelforge generation.',
             request: fn (PendingRequest $client): Response => $client->get("/generations/{$providerId}"),
@@ -93,7 +93,7 @@ final class PixelforgeProvider implements ImageGenerationProvider
         $response = $this->send(
             client: $this->authenticatedClient(),
             retries: 2,
-            shouldRetry: self::isTransientError(...),
+            shouldRetry: $this->isTransientError(...),
             connectionMessage: 'Could not connect to Pixelforge usage endpoint.',
             failureMessage: 'Failed to fetch Pixelforge usage report.',
             request: fn (PendingRequest $client): Response => $client->get('/usage', ['start_date' => $startDate, 'end_date' => $endDate]),
@@ -173,7 +173,7 @@ final class PixelforgeProvider implements ImageGenerationProvider
     /**
      * Retry every connection failure and any 5xx response.
      */
-    private static function isTransientError(Throwable $exception): bool
+    private function isTransientError(Throwable $exception): bool
     {
         return $exception instanceof ConnectionException
             || ($exception instanceof RequestException && $exception->response->serverError());
@@ -183,7 +183,7 @@ final class PixelforgeProvider implements ImageGenerationProvider
      * Retry connection failures and only 503s — a 429 means the caller must
      * slow down, not retry.
      */
-    private static function isOverloadedError(Throwable $exception): bool
+    private function isOverloadedError(Throwable $exception): bool
     {
         return $exception instanceof ConnectionException
             || ($exception instanceof RequestException && $exception->response->status() === 503);
