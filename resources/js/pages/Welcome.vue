@@ -18,7 +18,7 @@ const features = [
         icon: Calculator,
         title: 'Estimate before you spend',
         description:
-            'Every prompt returns a live token-cost preview from real provider rates — you see the exact ceiling before a cent is reserved.',
+            'Every prompt returns a live token-cost preview from real provider rates — you see the estimated maximum before a cent is reserved.',
     },
     {
         icon: ShieldCheck,
@@ -119,7 +119,7 @@ const steps = [
                     <p
                         class="mt-6 max-w-xl text-lg leading-relaxed text-pretty text-muted-foreground"
                     >
-                        Submit a prompt, see the exact cost ceiling before you
+                        Submit a prompt, see the estimated cost before you
                         spend, and let signed webhooks settle the rest. Your
                         wallet can never overdraft.
                     </p>

@@ -8,16 +8,19 @@ use App\Models\Generation;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\Bus;
+use Illuminate\Queue\Events\UniqueJobSkipped;
+use Illuminate\Support\Facades\Event;
 
 #[Description('Poll Pixelforge for stale queued or processing generations whose webhooks may have been missed.')]
 #[Signature('generations:reconcile-stale {--minutes=2 : Minimum age in minutes before reconciling} {--max-age=60 : Maximum age in minutes before timing out pending generations} {--hard-max-age=1440 : Maximum age in minutes before failing generations while the provider cannot be reached}')]
 class ReconcileStaleGenerationsCommand extends Command
 {
     /**
-     * Selects stale generations and fans out one ReconcileGenerationJob each
-     * as a batch — per-generation failures are isolated, and every job
-     * carries the cutoff snapshot the selection ran against.
+     * Selects stale generations and dispatches one ReconcileGenerationJob
+     * each through the normal dispatch path — batches push via bulk() and
+     * bypass ShouldBeUnique, so individual dispatches are what actually
+     * dedupes a generation that is still queued at the next scheduled run.
+     * Every job carries the cutoff snapshot the selection ran against.
      */
     public function handle(): int
     {
@@ -41,14 +44,21 @@ class ReconcileStaleGenerationsCommand extends Command
             return self::SUCCESS;
         }
 
-        Bus::batch(
-            $stale->map(fn (Generation $generation): ReconcileGenerationJob => new ReconcileGenerationJob($generation, $timeoutCutoff, $outageCutoff))->all()
-        )
-            ->name('reconcile-stale-generations')
-            ->allowFailures()
-            ->dispatch();
+        // The unique check runs in PendingDispatch::__destruct, so there is
+        // no return value to count on — UniqueJobSkipped is the signal when
+        // a generation is already queued or being reconciled.
+        $skipped = 0;
+        Event::listen(UniqueJobSkipped::class, function () use (&$skipped): void {
+            $skipped++;
+        });
 
-        $this->info("Dispatched {$stale->count()} stale-generation reconciliation job(s).");
+        foreach ($stale as $generation) {
+            ReconcileGenerationJob::dispatch($generation, $timeoutCutoff, $outageCutoff);
+        }
+
+        $dispatched = $stale->count() - $skipped;
+
+        $this->info("Dispatched {$dispatched} stale-generation reconciliation job(s).");
 
         return self::SUCCESS;
     }

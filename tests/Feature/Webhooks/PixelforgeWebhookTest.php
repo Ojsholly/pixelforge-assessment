@@ -14,7 +14,9 @@ use App\States\Generation\Processing;
 use App\States\Generation\Queued;
 use App\States\Generation\Succeeded;
 use App\Support\Money;
+use Illuminate\Bus\UniqueLock;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -823,7 +825,7 @@ it('rejects oversized webhook bodies before decoding with 413', function (): voi
     ], $rawBody)->assertStatus(413);
 });
 
-it('dispatches stale generations as a batch of reconcile jobs', function (): void {
+it('dispatches one unique reconcile job per stale generation', function (): void {
     Bus::fake();
 
     Generation::factory()->submitted()->create([
@@ -840,9 +842,31 @@ it('dispatches stale generations as a batch of reconcile jobs', function (): voi
         ->expectsOutput('Dispatched 2 stale-generation reconciliation job(s).')
         ->assertSuccessful();
 
-    Bus::assertBatched(
-        fn ($batch): bool => $batch->name === 'reconcile-stale-generations'
-            && $batch->jobs->count() === 2
-            && $batch->jobs->every(fn (object $job): bool => $job instanceof ReconcileGenerationJob),
-    );
+    Bus::assertDispatched(ReconcileGenerationJob::class, 2);
+});
+
+it('skips stale generations whose reconcile job is already queued', function (): void {
+    Bus::fake();
+
+    $stale = Generation::factory()->submitted()->create([
+        'provider_id' => 'gen_dup_1',
+        'updated_at' => now()->subMinutes(5),
+    ]);
+
+    Generation::factory()->submitted()->create([
+        'provider_id' => 'gen_dup_2',
+        'updated_at' => now()->subMinutes(5),
+    ]);
+
+    // Simulate a copy of gen_dup_1's job already in flight by holding its
+    // unique lock — the command's dispatch must then skip it.
+    Cache::lock(
+        UniqueLock::getKey(new ReconcileGenerationJob($stale, now(), now())),
+    )->acquire();
+
+    $this->artisan('generations:reconcile-stale')
+        ->expectsOutput('Dispatched 1 stale-generation reconciliation job(s).')
+        ->assertSuccessful();
+
+    Bus::assertDispatched(ReconcileGenerationJob::class, 1);
 });

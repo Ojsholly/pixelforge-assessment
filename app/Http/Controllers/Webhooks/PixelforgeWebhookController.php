@@ -26,13 +26,21 @@ class PixelforgeWebhookController extends Controller
 
     public function __invoke(Request $request, ImageGenerationProvider $provider): Response|JsonResponse
     {
+        // Reject oversized bodies before the raw payload is even read into
+        // memory — Content-Length is cheap; the byte count is the backstop.
+        $contentLength = $request->header('Content-Length');
+
+        if (is_string($contentLength) && ctype_digit($contentLength) && (int) $contentLength > self::MAX_PAYLOAD_BYTES) {
+            return response()->json(['message' => 'Webhook payload too large.'], 413);
+        }
+
         $rawPayload = $request->getContent();
 
         if (! $provider->verifyWebhookSignature($rawPayload, $request->header('Pixelforge-Signature'))) {
             return response()->json(['message' => 'Invalid webhook signature.'], 400);
         }
 
-        if (Str::length($rawPayload) > self::MAX_PAYLOAD_BYTES) {
+        if (strlen($rawPayload) > self::MAX_PAYLOAD_BYTES) {
             return response()->json(['message' => 'Webhook payload too large.'], 413);
         }
 

@@ -25,25 +25,39 @@ final class PixelforgeProvider implements ImageGenerationProvider
     {
         // Cache the wire payload, not the DTO: serializable_classes=false in
         // cache config means objects unserialize to __PHP_Incomplete_Class.
-        /** @var array<string, mixed> $payload */
-        $payload = Cache::remember(self::PRICING_CACHE_KEY, now()->addMinutes(5), function (): array {
-            $response = $this->send(
+        // A non-array hit is such a stale entry — drop it and refetch.
+        $payload = Cache::get(self::PRICING_CACHE_KEY);
+
+        if (! is_array($payload)) {
+            Cache::forget(self::PRICING_CACHE_KEY);
+            $payload = $this->fetchPricing();
+        }
+
+        return $this->pricingFromPayload($payload);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function fetchPricing(): array
+    {
+        $payload = $this->objectPayload(
+            $this->send(
                 client: $this->publicClient(),
                 retries: 2,
                 shouldRetry: $this->isTransientError(...),
                 connectionMessage: 'Could not connect to Pixelforge pricing endpoint.',
                 failureMessage: 'Failed to fetch Pixelforge pricing.',
                 request: fn (PendingRequest $client): Response => $client->get('/pricing'),
-            );
+            ),
+            'pricing',
+        );
 
-            $payload = $this->objectPayload($response, 'pricing');
+        $this->pricingFromPayload($payload);
 
-            $this->pricingFromPayload($payload);
+        Cache::put(self::PRICING_CACHE_KEY, $payload, now()->addMinutes(5));
 
-            return $payload;
-        });
-
-        return $this->pricingFromPayload($payload);
+        return $payload;
     }
 
     public function createGeneration(CreateGenerationInput $input): ProviderGenerationData

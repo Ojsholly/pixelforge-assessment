@@ -5,7 +5,6 @@ namespace App\Jobs;
 use App\Actions\Generations\ReconcileGenerationAction;
 use App\Models\Generation;
 use DateTimeInterface;
-use Illuminate\Bus\Batchable;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -25,7 +24,7 @@ use Illuminate\Queue\SerializesModels;
 #[Tries(2)]
 final class ReconcileGenerationJob implements ShouldBeUnique, ShouldQueue
 {
-    use Batchable, Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public function __construct(
         public readonly Generation $generation,
