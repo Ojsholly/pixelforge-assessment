@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Head, Link } from '@inertiajs/vue3';
-import { ArrowRight, Images, Plus, Wallet } from '@lucide/vue';
+import { ArrowRight, Coins, Images, Plus, Wallet } from '@lucide/vue';
 import GenerationStatusBadge from '@/components/GenerationStatusBadge.vue';
 import { Button } from '@/components/ui/button';
 import {
@@ -11,6 +11,7 @@ import {
     CardTitle,
 } from '@/components/ui/card';
 import { dashboard } from '@/routes';
+import { index as creditsIndex } from '@/routes/credits';
 import { create, index } from '@/routes/generations';
 
 type GenerationSummary = {
@@ -66,6 +67,14 @@ defineOptions({
                     </CardDescription>
                     <CardTitle class="text-3xl">{{ walletBalance }}</CardTitle>
                 </CardHeader>
+                <CardContent>
+                    <Button as-child variant="ghost" size="sm" class="-ml-3">
+                        <Link :href="creditsIndex()">
+                            <Coins class="mr-1.5 size-3.5" />
+                            Buy credits
+                        </Link>
+                    </Button>
+                </CardContent>
             </Card>
             <Card>
                 <CardHeader class="pb-2">

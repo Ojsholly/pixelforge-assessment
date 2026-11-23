@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Credits\WalletController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\Generations\EstimateGenerationController;
 use App\Http\Controllers\Generations\GenerationController;
@@ -25,6 +26,10 @@ Route::middleware(['auth', 'verified'])->group(function (): void {
     Route::post('generations/{generation}/refresh', [GenerationController::class, 'refresh'])
         ->middleware('throttle:30,1,generations_refresh')
         ->name('generations.refresh');
+    Route::get('credits', [WalletController::class, 'index'])->name('credits.index');
+    Route::post('credits', [WalletController::class, 'purchase'])
+        ->middleware('throttle:30,1,credits_purchase')
+        ->name('credits.purchase');
 });
 
 require __DIR__.'/settings.php';

@@ -4,12 +4,9 @@ namespace App\Actions\Generations;
 
 use App\Data\Pixelforge\ProviderGenerationData;
 use App\Data\Pixelforge\ProviderUsageData;
-use App\Enums\TransactionDirection;
-use App\Enums\TransactionType;
 use App\Models\Generation;
-use App\Models\Transaction;
-use App\Models\Wallet;
 use App\Services\PricingCalculator;
+use App\Services\WalletService;
 use App\States\Generation\Failed;
 use App\States\Generation\GenerationState;
 use App\States\Generation\Succeeded;
@@ -20,6 +17,7 @@ final readonly class ApplyGenerationStateAction
 {
     public function __construct(
         private PricingCalculator $calculator,
+        private WalletService $wallets,
     ) {}
 
     public function execute(Generation $generation, ProviderGenerationData $data): Generation
@@ -82,52 +80,7 @@ final readonly class ApplyGenerationStateAction
             ? CarbonImmutable::parse($data->completedAt)
             : CarbonImmutable::now();
 
-        if ($generation->reserved_amount <= 0) {
-            return;
-        }
-
-        /** @var Wallet $wallet */
-        $wallet = Wallet::query()
-            ->where('user_id', $generation->user_id)
-            ->lockForUpdate()
-            ->firstOrFail();
-
-        if ($generation->reserved_amount > $userCost) {
-            $surplus = $generation->reserved_amount - $userCost;
-            $wallet->balance += $surplus;
-            $wallet->save();
-
-            Transaction::forceCreate([
-                'wallet_id' => $wallet->id,
-                'transactionable_type' => $generation->getMorphClass(),
-                'transactionable_id' => $generation->id,
-                'direction' => TransactionDirection::Credit,
-                'type' => TransactionType::Release,
-                'amount' => $surplus,
-                'balance_after' => $wallet->balance,
-                'description' => "Released unused hold for generation #{$generation->id}",
-            ]);
-        } elseif ($userCost > $generation->reserved_amount) {
-            $shortfall = min($wallet->balance, $userCost - $generation->reserved_amount);
-
-            if ($shortfall > 0) {
-                $wallet->balance -= $shortfall;
-                $wallet->save();
-
-                Transaction::forceCreate([
-                    'wallet_id' => $wallet->id,
-                    'transactionable_type' => $generation->getMorphClass(),
-                    'transactionable_id' => $generation->id,
-                    'direction' => TransactionDirection::Debit,
-                    'type' => TransactionType::Capture,
-                    'amount' => $shortfall,
-                    'balance_after' => $wallet->balance,
-                    'description' => "Captured actual cost shortfall for generation #{$generation->id}",
-                ]);
-            }
-        }
-
-        $generation->reserved_amount = 0;
+        $this->wallets->settleGeneration($generation, $userCost);
     }
 
     private function handleFailed(Generation $generation, ProviderGenerationData $data): void
@@ -140,31 +93,6 @@ final readonly class ApplyGenerationStateAction
             ? CarbonImmutable::parse($data->completedAt)
             : CarbonImmutable::now();
 
-        if ($generation->reserved_amount <= 0) {
-            return;
-        }
-
-        /** @var Wallet $wallet */
-        $wallet = Wallet::query()
-            ->where('user_id', $generation->user_id)
-            ->lockForUpdate()
-            ->firstOrFail();
-
-        $refund = $generation->reserved_amount;
-        $wallet->balance += $refund;
-        $wallet->save();
-
-        Transaction::forceCreate([
-            'wallet_id' => $wallet->id,
-            'transactionable_type' => $generation->getMorphClass(),
-            'transactionable_id' => $generation->id,
-            'direction' => TransactionDirection::Credit,
-            'type' => TransactionType::Release,
-            'amount' => $refund,
-            'balance_after' => $wallet->balance,
-            'description' => "Full refund for failed generation #{$generation->id}",
-        ]);
-
-        $generation->reserved_amount = 0;
+        $this->wallets->releaseForGeneration($generation, "Full refund for failed generation #{$generation->id}");
     }
 }

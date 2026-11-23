@@ -1,6 +1,13 @@
 <script setup lang="ts">
-import { Head, useForm } from '@inertiajs/vue3';
-import { AlertCircle, CheckCircle2, Plus, Sparkles, Trash2 } from '@lucide/vue';
+import { Head, Link, useForm, usePage } from '@inertiajs/vue3';
+import {
+    AlertCircle,
+    CheckCircle2,
+    Coins,
+    Plus,
+    Sparkles,
+    Trash2,
+} from '@lucide/vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import InputError from '@/components/InputError.vue';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -15,6 +22,7 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { index as creditsIndex } from '@/routes/credits';
 import { create, estimate, store } from '@/routes/generations';
 
 type Option = {
@@ -31,6 +39,8 @@ type CostEstimate = {
         reasoning_min: number;
         reasoning_max: number;
     };
+    user_min_nanodollars: number;
+    user_max_nanodollars: number;
     user_min_usd: string;
     user_max_usd: string;
     user_min_display: string;
@@ -72,6 +82,16 @@ const unicodeCharCount = computed(() => Array.from(form.prompt.trim()).length);
 const canAddReferenceImage = computed(() => referenceImages.value.length < 4);
 const providerError = computed(
     () => (form.errors as Record<string, string | undefined>).provider,
+);
+const balanceError = computed(
+    () => (form.errors as Record<string, string | undefined>).balance,
+);
+const wallet = computed(() => usePage().props.wallet);
+const insufficientBalance = computed(
+    () =>
+        wallet.value !== null &&
+        costEstimate.value !== null &&
+        costEstimate.value.user_max_nanodollars > wallet.value.balance,
 );
 
 function refImageError(index: number): string | undefined {
@@ -177,14 +197,24 @@ function submit(): void {
     <div class="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 md:p-6">
         <Head title="Generate Image" />
 
-        <div class="flex flex-col gap-1">
-            <h1 class="text-2xl font-semibold tracking-tight">
-                Image Generation Studio
-            </h1>
-            <p class="text-sm text-muted-foreground">
-                Describe the image you want to generate. Review the live cost
-                estimate before submitting.
-            </p>
+        <div class="flex flex-wrap items-start justify-between gap-3">
+            <div class="flex flex-col gap-1">
+                <h1 class="text-2xl font-semibold tracking-tight">
+                    Image Generation Studio
+                </h1>
+                <p class="text-sm text-muted-foreground">
+                    Describe the image you want to generate. Review the live
+                    cost estimate before submitting.
+                </p>
+            </div>
+            <Badge
+                v-if="wallet"
+                variant="secondary"
+                class="gap-1.5 px-3 py-1.5 text-sm"
+            >
+                <Coins class="size-4" />
+                Balance {{ wallet.balance_display }}
+            </Badge>
         </div>
 
         <Alert
@@ -204,6 +234,25 @@ function submit(): void {
             <AlertTitle>Provider Error</AlertTitle>
             <AlertDescription>
                 {{ providerError }}
+            </AlertDescription>
+        </Alert>
+
+        <Alert v-if="insufficientBalance || balanceError" variant="destructive">
+            <AlertCircle class="size-4" />
+            <AlertTitle>Insufficient Balance</AlertTitle>
+            <AlertDescription>
+                <p>
+                    {{
+                        balanceError ??
+                        `This generation requires up to ${costEstimate?.user_max_display}, but your balance is ${wallet?.balance_display}.`
+                    }}
+                </p>
+                <Button as-child variant="outline" size="sm" class="mt-2">
+                    <Link :href="creditsIndex()">
+                        <Coins class="mr-1.5 size-3.5" />
+                        Buy credits
+                    </Link>
+                </Button>
             </AlertDescription>
         </Alert>
 
@@ -335,7 +384,8 @@ function submit(): void {
                                 :disabled="
                                     form.processing ||
                                     unicodeCharCount === 0 ||
-                                    unicodeCharCount > 4000
+                                    unicodeCharCount > 4000 ||
+                                    insufficientBalance
                                 "
                             >
                                 <Sparkles class="mr-2 size-4" />

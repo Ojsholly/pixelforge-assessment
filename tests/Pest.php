@@ -1,6 +1,8 @@
 <?php
 
+use App\Services\Pixelforge\PixelforgeProvider;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Tests\TestCase;
 
 /*
@@ -47,6 +49,12 @@ expect()->extend('toBeOne', function () {
 function something()
 {
     // ..
+}
+
+function seedPricingCacheAndKey(): void
+{
+    Cache::forget(PixelforgeProvider::PRICING_CACHE_KEY);
+    config(['services.pixelforge.api_key' => 'test-key']);
 }
 
 /**
