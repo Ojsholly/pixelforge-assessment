@@ -5,11 +5,15 @@ namespace App\Filters;
 use Closure;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Query\Expression;
 use Illuminate\Support\Str;
 
 /**
  * Whitelisted `?sort=` filter: `?sort=amount` sorts ascending, `?sort=-amount`
  * descending. Unknown or missing values fall back to the default ordering.
+ * `expressions` maps a sortable column to a raw ORDER BY fragment (constant
+ * SQL, never user input) for computed orderings like signed amounts. `id` is
+ * always appended as a tiebreaker so pagination is deterministic.
  */
 final readonly class Sort
 {
@@ -21,12 +25,14 @@ final readonly class Sort
     /**
      * @param  non-empty-array<int, string>  $allowedColumns
      * @param  'asc'|'desc'  $defaultDirection
+     * @param  array<string, literal-string>  $expressions
      */
     public function __construct(
         private ?string $sort,
         private array $allowedColumns,
         private string $defaultColumn,
         private string $defaultDirection = 'desc',
+        private array $expressions = [],
     ) {
         $column = Str::ltrim((string) $this->sort, '-');
 
@@ -53,6 +59,13 @@ final readonly class Sort
      */
     public function handle(Builder $query, Closure $next): Builder
     {
-        return $next($query->orderBy($this->column, $this->direction));
+        $expression = $this->expressions[$this->column] ?? null;
+
+        $query->orderBy(
+            $expression !== null ? new Expression($expression) : $this->column,
+            $this->direction,
+        );
+
+        return $next($query->orderBy('id', $this->direction));
     }
 }

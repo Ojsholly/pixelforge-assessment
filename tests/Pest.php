@@ -28,12 +28,14 @@ pest()->extend(TestCase::class)
 |
 | Every outbound HTTP call must be faked per-test. A stray request that
 | misses the fake patterns throws instead of silently hitting the network.
+| `uses()->beforeEach()->in('Feature')` applies to every Feature test;
+| a standalone beforeEach() here would only bind to this file.
 |
 */
 
-beforeEach(function (): void {
+uses()->beforeEach(function (): void {
     Http::preventStrayRequests();
-});
+})->in('Feature');
 
 /*
 |--------------------------------------------------------------------------

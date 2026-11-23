@@ -91,6 +91,9 @@ final class WalletController extends Controller
             sort: is_string($sort) ? $sort : null,
             allowedColumns: ['created_at', 'amount', 'balance_after'],
             defaultColumn: 'created_at',
+            expressions: [
+                'amount' => "case when direction = 'credit' then amount else -amount end",
+            ],
         );
     }
 }
