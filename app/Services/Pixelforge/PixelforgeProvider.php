@@ -23,7 +23,10 @@ final class PixelforgeProvider implements ImageGenerationProvider
 
     public function getPricing(): PricingData
     {
-        return Cache::remember(self::PRICING_CACHE_KEY, now()->addMinutes(5), function (): PricingData {
+        // Cache the wire payload, not the DTO: serializable_classes=false in
+        // cache config means objects unserialize to __PHP_Incomplete_Class.
+        /** @var array<string, mixed> $payload */
+        $payload = Cache::remember(self::PRICING_CACHE_KEY, now()->addMinutes(5), function (): array {
             try {
                 $response = $this->publicClient()
                     ->retry(2, 200, fn (Throwable $exception): bool => $exception instanceof ConnectionException
@@ -52,18 +55,12 @@ final class PixelforgeProvider implements ImageGenerationProvider
                 );
             }
 
-            try {
-                /** @var array<string, mixed> $payload */
-                return PricingData::fromArray($payload);
-            } catch (InvalidArgumentException $invalidArgumentException) {
-                throw new ProviderException(
-                    message: $invalidArgumentException->getMessage(),
-                    statusCode: 502,
-                    errorCode: 'malformed_response',
-                    previous: $invalidArgumentException,
-                );
-            }
+            $this->pricingFromPayload($payload);
+
+            return $payload;
         });
+
+        return $this->pricingFromPayload($payload);
     }
 
     public function createGeneration(CreateGenerationInput $input): ProviderGenerationData
@@ -203,6 +200,23 @@ final class PixelforgeProvider implements ImageGenerationProvider
         $expected = hash_hmac('sha256', "{$timestamp}.{$rawPayload}", $secret);
 
         return array_any($signatures, fn (string $signature): bool => hash_equals($expected, $signature));
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function pricingFromPayload(array $payload): PricingData
+    {
+        try {
+            return PricingData::fromArray($payload);
+        } catch (InvalidArgumentException $invalidArgumentException) {
+            throw new ProviderException(
+                message: $invalidArgumentException->getMessage(),
+                statusCode: 502,
+                errorCode: 'malformed_response',
+                previous: $invalidArgumentException,
+            );
+        }
     }
 
     private function publicClient(): PendingRequest
