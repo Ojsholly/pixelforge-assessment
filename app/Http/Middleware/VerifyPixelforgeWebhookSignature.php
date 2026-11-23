@@ -21,7 +21,7 @@ class VerifyPixelforgeWebhookSignature
      */
     private const int MAX_PAYLOAD_BYTES = 262_144;
 
-    public function __construct(private ImageGenerationProvider $provider) {}
+    public function __construct(private readonly ImageGenerationProvider $provider) {}
 
     /**
      * Handle an incoming request.
