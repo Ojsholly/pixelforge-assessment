@@ -8,19 +8,14 @@ use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Authenticity gate for provider webhook deliveries: rejects oversized
- * bodies before they are read (Content-Length, then a byte backstop on
- * the raw payload), then verifies the HMAC signature against the
- * configured provider before the request ever reaches the controller.
+ * Authenticity gate for provider webhook deliveries: enforces the payload
+ * byte cap on the raw body (backstop for deliveries with no trustworthy
+ * Content-Length — the global LimitWebhookPayloadSize handles declared
+ * lengths before body parsing), then verifies the HMAC signature against
+ * the configured provider before the request ever reaches the controller.
  */
 class VerifyPixelforgeWebhookSignature
 {
-    /**
-     * Real generation payloads are ~2 KB; a cap rejects floods before the
-     * body ever reaches the JSON decoder.
-     */
-    private const int MAX_PAYLOAD_BYTES = 262_144;
-
     public function __construct(private readonly ImageGenerationProvider $provider) {}
 
     /**
@@ -30,15 +25,12 @@ class VerifyPixelforgeWebhookSignature
      */
     public function handle(Request $request, Closure $next): Response
     {
-        $contentLength = $request->header('Content-Length');
-
-        if (is_string($contentLength) && ctype_digit($contentLength) && (int) $contentLength > self::MAX_PAYLOAD_BYTES) {
-            return response()->json(['message' => 'Webhook payload too large.'], 413);
-        }
-
+        // Content-Length was already checked by the globally prepended
+        // LimitWebhookPayloadSize; strlen covers chunked or mislabeled
+        // deliveries that arrive without a trustworthy length.
         $rawPayload = $request->getContent();
 
-        if (strlen($rawPayload) > self::MAX_PAYLOAD_BYTES) {
+        if (strlen($rawPayload) > LimitWebhookPayloadSize::MAX_PAYLOAD_BYTES) {
             return response()->json(['message' => 'Webhook payload too large.'], 413);
         }
 

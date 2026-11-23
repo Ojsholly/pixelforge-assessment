@@ -44,7 +44,7 @@ Application-specific settings on top of the Laravel starter kit:
 ```bash
 php artisan serve            # app
 npm run dev                  # Vite dev server
-php artisan queue:work       # REQUIRED — webhooks/reconcile are queued jobs
+php artisan queue:work --queue=default,reconciliation  # REQUIRED — webhooks drain first, reconcile second
 php artisan schedule:work    # REQUIRED for stale-generation reconciliation
 ```
 

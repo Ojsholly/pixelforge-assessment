@@ -4,6 +4,7 @@ use App\Exceptions\ProviderException;
 use App\Http\Middleware\AddSecurityHeaders;
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
+use App\Http\Middleware\LimitWebhookPayloadSize;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -19,6 +20,11 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // First middleware to see every request: oversized webhook bodies are
+        // rejected on Content-Length before TrimStrings/ConvertEmptyStringsToNull
+        // (which iterate $request->all()) can decode the JSON payload.
+        $middleware->prepend(LimitWebhookPayloadSize::class);
+
         $middleware->encryptCookies(except: ['appearance', 'sidebar_state']);
         $middleware->validateCsrfTokens(except: ['webhooks/pixelforge']);
 

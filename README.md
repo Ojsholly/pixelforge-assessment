@@ -13,7 +13,7 @@ against the provider's own usage endpoint.
 ```bash
 composer setup          # install deps, create .env, migrate + seed, build
 npm run dev             # Vite dev server (separate terminal)
-php artisan queue:work  # queue worker (webhook + reconcile jobs)
+php artisan queue:work --queue=default,reconciliation  # webhooks first, reconcile second
 php artisan schedule:work  # scheduler (stale-generation reconciliation)
 ```
 

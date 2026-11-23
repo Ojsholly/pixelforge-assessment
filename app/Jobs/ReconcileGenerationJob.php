@@ -19,6 +19,10 @@ use Illuminate\Queue\SerializesModels;
  * generation id: a stale row picked up by two consecutive scheduled runs
  * produces at most one in-flight job; the generation row lock inside
  * ApplyGenerationStateAction serializes against live webhook arrivals.
+ *
+ * Runs on the `reconciliation` queue: provider polling can block for
+ * seconds per job, so it must not sit ahead of webhook settlement work
+ * on the default queue when a single worker drains `default` first.
  */
 #[Backoff([30])]
 #[Tries(2)]
@@ -30,7 +34,9 @@ final class ReconcileGenerationJob implements ShouldBeUnique, ShouldQueue
         public readonly Generation $generation,
         public readonly DateTimeInterface $timeoutCutoff,
         public readonly DateTimeInterface $outageCutoff,
-    ) {}
+    ) {
+        $this->onQueue('reconciliation');
+    }
 
     public function uniqueId(): string
     {
