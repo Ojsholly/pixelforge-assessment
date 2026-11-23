@@ -3,6 +3,7 @@
 use App\Http\Controllers\Admin\ReportController;
 use App\Http\Controllers\Credits\WalletController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\Demo\DemoLoginController;
 use App\Http\Controllers\Generations\EstimateGenerationController;
 use App\Http\Controllers\Generations\GenerationController;
 use App\Http\Controllers\Webhooks\PixelforgeWebhookController;
@@ -11,6 +12,10 @@ use App\Http\Middleware\VerifyPixelforgeWebhookSignature;
 use Illuminate\Support\Facades\Route;
 
 Route::inertia('/', 'Welcome')->name('home');
+
+Route::post('demo-login', DemoLoginController::class)
+    ->middleware('throttle:10,1,demo_login')
+    ->name('demo.login');
 
 Route::post('webhooks/pixelforge', PixelforgeWebhookController::class)
     ->middleware(VerifyPixelforgeWebhookSignature::class)

@@ -39,8 +39,21 @@ class DemoUserSeeder extends Seeder
             throw new RuntimeException('Set SEED_USER_EMAIL to seed a demo user.');
         }
 
-        if (User::query()->where('email', $email)->exists()) {
-            $this->command?->info("[{$email}] already exists — skipping demo user seeding.");
+        /** @var User|null $existing */
+        $existing = User::query()->where('email', $email)->first();
+
+        if ($existing instanceof User) {
+            if ($existing->is_admin) {
+                $this->command?->warn("[{$email}] exists as an admin — not flagging it as a public demo account.");
+            } elseif (! $existing->is_demo) {
+                // Configuring SEED_USER_EMAIL is explicit operator intent —
+                // flag the account so POST /demo-login can bind to it.
+                $existing->is_demo = true;
+                $existing->save();
+                $this->command?->info("[{$email}] already exists — flagged as the demo account.");
+            } else {
+                $this->command?->info("[{$email}] already exists — skipping demo user seeding.");
+            }
 
             return;
         }
@@ -59,6 +72,7 @@ class DemoUserSeeder extends Seeder
                 'email' => $email,
                 'password' => Hash::make($password),
                 'email_verified_at' => now(),
+                'is_demo' => true,
             ])->save();
 
             // Blank SEED_USER_CREDITS_USD (e.g. the empty default shipped in

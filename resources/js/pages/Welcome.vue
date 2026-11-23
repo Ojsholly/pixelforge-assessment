@@ -1,15 +1,17 @@
 <script setup lang="ts">
-import { Head, Link, usePage } from '@inertiajs/vue3';
+import { Form, Head, Link, usePage } from '@inertiajs/vue3';
 import {
     Aperture,
     ArrowRight,
     Calculator,
     ShieldCheck,
+    Sparkles,
     Wallet,
 } from '@lucide/vue';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { dashboard, login, register } from '@/routes';
+import { login as demoLogin } from '@/routes/demo';
 
 const page = usePage();
 
@@ -142,6 +144,20 @@ const steps = [
                             <Button as-child variant="outline" size="lg">
                                 <Link :href="login()">Sign in</Link>
                             </Button>
+                            <Form
+                                v-if="page.props.demoLogin"
+                                v-bind="demoLogin.form()"
+                                class="contents"
+                            >
+                                <Button
+                                    type="submit"
+                                    variant="secondary"
+                                    size="lg"
+                                >
+                                    <Sparkles class="size-4" />
+                                    Try the demo
+                                </Button>
+                            </Form>
                         </template>
                     </div>
                 </div>
