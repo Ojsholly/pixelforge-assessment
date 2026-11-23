@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { Link } from '@inertiajs/vue3';
+import { Link, usePage } from '@inertiajs/vue3';
 import {
     BookOpen,
+    ChartColumn,
     Coins,
     FolderGit2,
     Images,
     LayoutGrid,
     Sparkles,
 } from '@lucide/vue';
+import { computed } from 'vue';
 import AppLogo from '@/components/AppLogo.vue';
 import NavFooter from '@/components/NavFooter.vue';
 import NavMain from '@/components/NavMain.vue';
@@ -22,6 +24,7 @@ import {
     SidebarMenuItem,
 } from '@/components/ui/sidebar';
 import { dashboard } from '@/routes';
+import { report as adminReport } from '@/routes/admin';
 import { index as creditsIndex } from '@/routes/credits';
 import {
     create as generateCreate,
@@ -52,6 +55,21 @@ const mainNavItems: NavItem[] = [
     },
 ];
 
+const page = usePage();
+
+const navItems = computed<NavItem[]>(() =>
+    page.props.auth.user.is_admin === true
+        ? [
+              ...mainNavItems,
+              {
+                  title: 'Usage Report',
+                  href: adminReport(),
+                  icon: ChartColumn,
+              },
+          ]
+        : mainNavItems,
+);
+
 const footerNavItems: NavItem[] = [
     {
         title: 'Repository',
@@ -81,7 +99,7 @@ const footerNavItems: NavItem[] = [
         </SidebarHeader>
 
         <SidebarContent>
-            <NavMain :items="mainNavItems" />
+            <NavMain :items="navItems" />
         </SidebarContent>
 
         <SidebarFooter>

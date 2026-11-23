@@ -3,6 +3,7 @@
 namespace App\Data\Pixelforge;
 
 use App\Support\Money;
+use InvalidArgumentException;
 
 final readonly class UsageDayData
 {
@@ -18,10 +19,16 @@ final readonly class UsageDayData
     ) {}
 
     /**
-     * @param  array<string, int|string>  $payload
+     * @param  array<string, mixed>  $payload
      */
     public static function fromArray(array $payload): self
     {
+        foreach (['date', 'generations', 'input_text_tokens', 'input_image_tokens', 'output_tokens', 'reasoning_tokens', 'cost_usd'] as $key) {
+            if (! isset($payload[$key]) || ! is_scalar($payload[$key])) {
+                throw new InvalidArgumentException("Malformed usage day payload: missing or invalid [{$key}].");
+            }
+        }
+
         $costUsd = (string) $payload['cost_usd'];
 
         return new self(

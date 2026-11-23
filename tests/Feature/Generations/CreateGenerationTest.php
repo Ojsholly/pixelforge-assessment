@@ -1,11 +1,15 @@
 <?php
 
+use App\Actions\Generations\CreateGenerationAction;
+use App\Enums\ImageQuality;
+use App\Enums\ImageSize;
 use App\Enums\TransactionType;
 use App\Models\Generation;
 use App\Models\User;
 use App\States\Generation\Failed;
 use App\States\Generation\Queued;
 use App\Support\Money;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -315,3 +319,21 @@ it('does not allow estimate requests to exhaust the generation submission thrott
     ])->assertRedirect(route('generations.create'))
         ->assertSessionHas('status');
 });
+
+it('refuses to create a generation for a deleted user', function (): void {
+    seedPricingCacheAndKey();
+
+    Http::fake([
+        'https://pixelforge.promptedit.dev/v1/pricing' => Http::response(validPricingPayload(), 200),
+    ]);
+
+    $user = User::factory()->create();
+    $user->delete();
+
+    app(CreateGenerationAction::class)->execute(
+        $user,
+        'A red panda',
+        ImageSize::Square,
+        ImageQuality::Medium,
+    );
+})->throws(ModelNotFoundException::class);

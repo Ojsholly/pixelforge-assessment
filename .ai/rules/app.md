@@ -20,3 +20,7 @@ Use static Str::* methods (Str::endsWith, Str::lower) — not Str::of() fluent c
 ## Immutable dates via CarbonImmutable
 
 Dates are immutable: AppServiceProvider sets Date::use(CarbonImmutable::class), and models/DTOs type-hint CarbonImmutable. Do not introduce mutable Carbon instances.
+
+## Error handling: boundary try/catch only, typed exceptions, central render
+
+Controllers and request-facing code never try/catch - exceptions bubble to the handler. try/catch belongs only at integration boundaries and must translate the failure into a typed domain exception or compensate: PixelforgeProvider wraps ConnectionException/RequestException/InvalidArgumentException as ProviderException, WalletService retries UniqueConstraintViolationException in ensureWallet, and actions like CreateGenerationAction catch ProviderException only to transition the generation to Failed and release the hold. ProviderException is rendered centrally in bootstrap/app.php (Inertia back-with-errors or JSON for expectsJson). Never log-and-swallow or silently degrade on a caught exception.

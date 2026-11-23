@@ -6,6 +6,7 @@ use App\Models\Generation;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Models\WebhookEvent;
+use App\Services\WalletService;
 use App\States\Generation\Failed;
 use App\States\Generation\Processing;
 use App\States\Generation\Queued;
@@ -640,4 +641,109 @@ it('prunes processed webhook events older than thirty days', function (): void {
     expect(WebhookEvent::find($expired->id))->toBeNull()
         ->and(WebhookEvent::find($recent->id))->not->toBeNull()
         ->and(WebhookEvent::find($unprocessed->id))->not->toBeNull();
+});
+
+it('ignores a stale event that claims a generation already bound to a provider id', function (): void {
+    config(['services.pixelforge.webhook_secret' => 'whsec_test_secret']);
+
+    $generation = Generation::factory()->submitted()->create([
+        'provider_id' => 'gen_real_1',
+    ]);
+
+    $rawBody = json_encode([
+        'id' => 'evt_stale_claim',
+        'object' => 'event',
+        'type' => 'generation.succeeded',
+        'data' => [
+            'object' => [
+                'id' => 'gen_stale_404',
+                'status' => 'succeeded',
+                'rates' => $generation->rates_snapshot,
+                'image_url' => 'https://pixelforge.promptedit.dev/images/stale.png',
+                'usage' => [
+                    'input_text_tokens' => 10,
+                    'input_image_tokens' => 0,
+                    'output_tokens' => 1100,
+                    'reasoning_tokens' => 500,
+                    'total_tokens' => 1610,
+                ],
+                'metadata' => ['local_generation_id' => (string) $generation->id],
+                'completed_at' => '2026-11-22T12:00:15Z',
+            ],
+        ],
+    ], JSON_THROW_ON_ERROR);
+
+    $this->call('POST', route('webhooks.pixelforge'), [], [], [], [
+        'CONTENT_TYPE' => 'application/json',
+        'HTTP_PIXELFORGE_SIGNATURE' => signWebhookPayload($rawBody),
+    ], $rawBody)->assertNoContent();
+
+    $generation->refresh();
+
+    expect($generation->status)->toBeInstanceOf(Queued::class)
+        ->and($generation->provider_id)->toBe('gen_real_1')
+        ->and($generation->image_url)->toBeNull();
+});
+
+it('keeps image fields null when a retained generation succeeds after account deletion', function (): void {
+    config(['services.pixelforge.webhook_secret' => 'whsec_test_secret']);
+
+    $user = User::factory()->create();
+    $wallet = $user->wallet()->firstOrFail();
+    $wallet->balance = 5 * Money::NANODOLLARS_PER_USD;
+    $wallet->save();
+
+    $generation = Generation::factory()->submitted()->for($user)->create([
+        'provider_id' => 'gen_orphan_1',
+    ]);
+
+    app(WalletService::class)->holdForGeneration($user, $generation, 100_000_000);
+
+    $user->delete();
+
+    expect($generation->refresh()->user_id)->toBeNull()
+        ->and($wallet->refresh()->user_id)->toBeNull();
+
+    $rawBody = json_encode([
+        'id' => 'evt_orphan_1',
+        'object' => 'event',
+        'type' => 'generation.succeeded',
+        'data' => [
+            'object' => [
+                'id' => 'gen_orphan_1',
+                'status' => 'succeeded',
+                'rates' => $generation->rates_snapshot,
+                'image_url' => 'https://pixelforge.promptedit.dev/images/gen_orphan_1.png',
+                'image_url_expires_at' => '2026-11-23T12:00:15Z',
+                'usage' => [
+                    'input_text_tokens' => 10,
+                    'input_image_tokens' => 0,
+                    'output_tokens' => 1100,
+                    'reasoning_tokens' => 500,
+                    'total_tokens' => 1610,
+                ],
+                'completed_at' => '2026-11-22T12:00:15Z',
+            ],
+        ],
+    ], JSON_THROW_ON_ERROR);
+
+    $this->call('POST', route('webhooks.pixelforge'), [], [], [], [
+        'CONTENT_TYPE' => 'application/json',
+        'HTTP_PIXELFORGE_SIGNATURE' => signWebhookPayload($rawBody),
+    ], $rawBody)->assertNoContent();
+
+    $generation->refresh();
+
+    // Billing data lands and the hold settles on the anonymized wallet, but
+    // no media reattaches to a generation whose owner was deleted.
+    expect($generation->status)->toBeInstanceOf(Succeeded::class)
+        ->and($generation->actual_user_cost)->toBe(62_875_000)
+        ->and($generation->image_url)->toBeNull()
+        ->and($generation->image_url_expires_at)->toBeNull()
+        ->and(
+            Transaction::query()
+                ->where('wallet_id', $wallet->id)
+                ->where('type', TransactionType::Release->value)
+                ->exists()
+        )->toBeTrue();
 });

@@ -15,7 +15,6 @@ use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use InvalidArgumentException;
-use LogicException;
 use Throwable;
 
 final class PixelforgeProvider implements ImageGenerationProvider
@@ -130,7 +129,45 @@ final class PixelforgeProvider implements ImageGenerationProvider
 
     public function getUsage(string $startDate, string $endDate): UsageReportData
     {
-        throw new LogicException('getUsage() will be implemented in Epic 07.');
+        try {
+            $response = $this->authenticatedClient()
+                ->retry(2, 200, fn (Throwable $exception): bool => $exception instanceof ConnectionException
+                    || ($exception instanceof RequestException && $exception->response->serverError()), throw: false)
+                ->get('/usage', ['start_date' => $startDate, 'end_date' => $endDate]);
+        } catch (ConnectionException $connectionException) {
+            throw new ProviderException(
+                message: 'Could not connect to Pixelforge usage endpoint.',
+                statusCode: 503,
+                errorCode: 'connection_error',
+                previous: $connectionException,
+            );
+        }
+
+        if ($response->failed()) {
+            throw $this->toProviderException($response, 'Failed to fetch Pixelforge usage report.');
+        }
+
+        $payload = $response->json();
+
+        if (! is_array($payload)) {
+            throw new ProviderException(
+                message: 'Malformed usage payload: expected JSON object.',
+                statusCode: 502,
+                errorCode: 'malformed_response',
+            );
+        }
+
+        try {
+            /** @var array<string, mixed> $payload */
+            return UsageReportData::fromArray($payload);
+        } catch (InvalidArgumentException $invalidArgumentException) {
+            throw new ProviderException(
+                message: $invalidArgumentException->getMessage(),
+                statusCode: 502,
+                errorCode: 'malformed_response',
+                previous: $invalidArgumentException,
+            );
+        }
     }
 
     public function verifyWebhookSignature(string $rawPayload, ?string $signatureHeader, int $toleranceSeconds = 300): bool

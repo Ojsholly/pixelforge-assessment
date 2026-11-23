@@ -16,7 +16,7 @@ use Spatie\ModelStates\HasStates;
 
 /**
  * @property int $id
- * @property int $user_id
+ * @property int|null $user_id
  * @property string|null $provider_id
  * @property string $idempotency_key
  * @property GenerationState $status
