@@ -5,7 +5,13 @@
 Pixelforge Image Studio (Laravel 13, PHP 8.4, Vue 3, Inertia v3, Wayfinder, Tailwind CSS v4, PostgreSQL 17).
 Manages asynchronous AI image generations, exact integer-nanodollar billing (+25% markup), signed idempotent webhooks, and wallet/ledger accounting.
 
-## Epic 06 — Wallets & Balances (Current PR)
+## Conventions — .ai/rules (Current PR)
+
+- Docs-only change: `.ai/rules/` records 16 inferred project conventions across 13 area files plus a generated `index.md` mapping each glob to its rule file. Written via `Laravel\Boost\Rules\RuleRepository::write()` (the same code path as Boost's `record-rule` MCP tool, which was unreachable) so the `paths:` frontmatter and index format are canonical.
+- Content covers architecture (feature-grouped dirs, Action `execute()`, contracts+adapters, readonly DTOs, model-states, pipeline filters, presenters, nanodollar/WalletService ledger invariants) plus checklist conventions (Form Requests, `Gate::authorize`, `to_route`, string-column enums, `Str::*`, throttle keys, `CarbonImmutable`, `Http::fake`/`preventStrayRequests`, Wayfinder).
+- Reviewer note: nothing here affects runtime; verify the notes describe the code as it exists rather than aspirational style.
+
+## Epic 06 — Wallets & Balances (Merged)
 
 - **`App\Services\WalletService`:** Single owner of every wallet balance mutation — `ensureWallet`, `purchase`, `holdForGeneration`, `settleGeneration`, `releaseForGeneration`. Each runs inside `DB::transaction` (nesting safely into caller transactions), locks the `wallets` row with `lockForUpdate()`, and writes an immutable `transactions` ledger row whose `balance_after` is the post-mutation balance. All amounts are integer nanodollars.
 - **Insufficient-funds blocking (`holdForGeneration` + `CreateGenerationAction`):** The hold check now happens inside the wallet row lock in TX1 — `balance < estimated_max_user_cost` throws `ValidationException` (key `balance`), rolling back the pre-created `Generation` row *before* `POST /v1/generations` is ever called. Concurrent submissions serialize on the lock and cannot overdraft. This is a deliberate contract change: Epic 03 created unfunded `reserved_amount = 0` generations; Epic 06 rejects them (three pre-existing tests updated to fund wallets).
