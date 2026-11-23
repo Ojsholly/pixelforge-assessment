@@ -57,6 +57,13 @@ final readonly class ProviderGenerationData
             throw new InvalidArgumentException('Malformed provider generation payload: invalid image_url.');
         }
 
+        // A succeeded generation without usage or image_url is an incomplete
+        // payload: settling it would charge $0, release the full hold, and the
+        // terminal state would then swallow the later complete payload.
+        if ($status === GenerationStatus::Succeeded && (! is_array($payload['usage'] ?? null) || empty($payload['image_url']))) {
+            throw new InvalidArgumentException('Malformed provider generation payload: succeeded status requires usage and image_url.');
+        }
+
         /** @var array{input_text_tokens: string, input_image_tokens: string, output_tokens: string, reasoning_tokens: string} $rates */
         $rates = $payload['rates'];
         /** @var array<string, string> $metadata */

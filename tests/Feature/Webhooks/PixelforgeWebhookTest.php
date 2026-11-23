@@ -495,6 +495,14 @@ it('settles succeeded webhooks despite unparseable optional timestamps', functio
                 'id' => 'gen_bad_ts',
                 'status' => 'succeeded',
                 'rates' => $generation->rates_snapshot,
+                'image_url' => 'https://pixelforge.promptedit.dev/images/gen_bad_ts.png',
+                'usage' => [
+                    'input_text_tokens' => 10,
+                    'input_image_tokens' => 0,
+                    'output_tokens' => 1100,
+                    'reasoning_tokens' => 500,
+                    'total_tokens' => 1610,
+                ],
                 'completed_at' => 'not-a-timestamp',
             ],
         ],
@@ -533,6 +541,14 @@ it('rolls back settlement and processed_at together when the state action throws
                 'id' => 'gen_atomic_1',
                 'status' => 'succeeded',
                 'rates' => $generation->rates_snapshot,
+                'image_url' => 'https://pixelforge.promptedit.dev/images/gen_atomic_1.png',
+                'usage' => [
+                    'input_text_tokens' => 10,
+                    'input_image_tokens' => 0,
+                    'output_tokens' => 1100,
+                    'reasoning_tokens' => 500,
+                    'total_tokens' => 1610,
+                ],
                 'completed_at' => '2026-11-22T12:00:15Z',
             ],
         ],
@@ -549,6 +565,40 @@ it('rolls back settlement and processed_at together when the state action throws
         ->and($event->processed_at)->toBeNull()
         ->and($generation->refresh()->status)->toBeInstanceOf(Processing::class)
         ->and(Transaction::count())->toBe(0);
+});
+
+it('acknowledges succeeded payloads missing usage without settling', function (): void {
+    config(['services.pixelforge.webhook_secret' => 'whsec_test_secret']);
+
+    $user = User::factory()->create();
+    $generation = Generation::factory()->processing()->for($user)->create([
+        'provider_id' => 'gen_incomplete_1',
+        'reserved_amount' => 50_000_000,
+    ]);
+
+    $rawBody = json_encode([
+        'id' => 'evt_incomplete_1',
+        'object' => 'event',
+        'type' => 'generation.succeeded',
+        'data' => [
+            'object' => [
+                'id' => 'gen_incomplete_1',
+                'status' => 'succeeded',
+                'rates' => $generation->rates_snapshot,
+                'completed_at' => '2026-11-22T12:00:15Z',
+            ],
+        ],
+    ], JSON_THROW_ON_ERROR);
+
+    $this->call('POST', route('webhooks.pixelforge'), [], [], [], [
+        'CONTENT_TYPE' => 'application/json',
+        'HTTP_PIXELFORGE_SIGNATURE' => signWebhookPayload($rawBody),
+    ], $rawBody)->assertNoContent();
+
+    expect($generation->refresh()->status)->toBeInstanceOf(Processing::class)
+        ->and($generation->reserved_amount)->toBe(50_000_000)
+        ->and($generation->transactions()->count())->toBe(0)
+        ->and(WebhookEvent::firstWhere('provider_event_id', 'evt_incomplete_1')?->processed_at)->not->toBeNull();
 });
 
 it('deletes webhook events belonging to a user when their account is deleted', function (): void {
