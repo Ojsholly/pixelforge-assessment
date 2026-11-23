@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Form, Head } from '@inertiajs/vue3';
+import { Form, Head, usePage } from '@inertiajs/vue3';
 import InputError from '@/components/InputError.vue';
 import PasswordInput from '@/components/PasswordInput.vue';
 import TextLink from '@/components/TextLink.vue';
@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
 import { register } from '@/routes';
+import { login as demoLogin } from '@/routes/demo';
 import { store } from '@/routes/login';
 import { request } from '@/routes/password';
 import PasskeyVerify from '@/components/PasskeyVerify.vue';
@@ -24,6 +25,8 @@ defineProps<{
     status?: string;
     canResetPassword: boolean;
 }>();
+
+const page = usePage();
 </script>
 
 <template>
@@ -107,4 +110,20 @@ defineProps<{
             <TextLink :href="register()" :tabindex="5">Sign up</TextLink>
         </div>
     </Form>
+
+    <template v-if="page.props.demoLogin">
+        <div class="relative my-6">
+            <div class="absolute inset-0 flex items-center">
+                <span class="w-full border-t border-border" />
+            </div>
+            <div class="relative flex justify-center text-xs uppercase">
+                <span class="bg-card px-2 text-muted-foreground">or</span>
+            </div>
+        </div>
+        <Form v-bind="demoLogin.form()" class="contents">
+            <Button type="submit" variant="outline" class="w-full">
+                Continue as demo user
+            </Button>
+        </Form>
+    </template>
 </template>

@@ -135,4 +135,21 @@ return [
         'credits_usd' => env('SEED_USER_CREDITS_USD', '0.00'),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Demo Login
+    |--------------------------------------------------------------------------
+    |
+    | One-click "Try the demo" button on the landing/login pages. Disabled by
+    | default — enabling it publishes an unauthenticated login path for the
+    | designated account, so it should only ever point at a seeded demo user
+    | (which defaults to SEED_USER_EMAIL), never a real or admin account.
+    |
+    */
+
+    'demo_login' => [
+        'enabled' => env('DEMO_LOGIN_ENABLED', false),
+        'email' => env('DEMO_LOGIN_EMAIL', env('SEED_USER_EMAIL')),
+    ],
+
 ];

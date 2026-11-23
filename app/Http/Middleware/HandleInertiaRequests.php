@@ -60,6 +60,7 @@ class HandleInertiaRequests extends Middleware
             'flash' => [
                 'status' => $request->session()->get('status'),
             ],
+            'demoLogin' => (bool) config('app.demo_login.enabled') && filled(config('app.demo_login.email')),
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
         ];
     }
