@@ -7,6 +7,8 @@ use App\Enums\TransactionDirection;
 use App\Models\Generation;
 use App\Models\Transaction;
 use App\Models\User;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 final class GenerationPresenter
 {
@@ -74,9 +76,11 @@ final class GenerationPresenter
      */
     public function statusCounts(User $user): array
     {
-        $counts = Generation::query()
+        // Direct DB query — counts don't need hydrated models.
+        $counts = DB::table('generations')
             ->where('user_id', $user->id)
-            ->selectRaw('status, count(*) as aggregate')
+            ->select('status')
+            ->selectRaw('count(*) as aggregate')
             ->groupBy('status')
             ->pluck('aggregate', 'status');
 
@@ -112,6 +116,6 @@ final class GenerationPresenter
      */
     private function safeImageUrl(?string $url): ?string
     {
-        return $url !== null && str_starts_with($url, 'https://') ? $url : null;
+        return $url !== null && Str::startsWith($url, 'https://') ? $url : null;
     }
 }

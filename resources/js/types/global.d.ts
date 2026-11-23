@@ -19,6 +19,13 @@ declare module '@inertiajs/core' {
         sharedPageProps: {
             name: string;
             auth: Auth;
+            wallet: {
+                balance: number;
+                balance_display: string;
+            } | null;
+            flash: {
+                status: string | null;
+            };
             sidebarOpen: boolean;
             [key: string]: unknown;
         };

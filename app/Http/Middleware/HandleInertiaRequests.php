@@ -2,6 +2,8 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\User;
+use App\Services\WalletService;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 
@@ -40,6 +42,23 @@ class HandleInertiaRequests extends Middleware
             'name' => config('app.name'),
             'auth' => [
                 'user' => $request->user(),
+            ],
+            'wallet' => function () use ($request): ?array {
+                $user = $request->user();
+
+                if (! $user instanceof User) {
+                    return null;
+                }
+
+                $wallet = app(WalletService::class)->ensureWallet($user);
+
+                return [
+                    'balance' => $wallet->balance,
+                    'balance_display' => $wallet->formatted_balance,
+                ];
+            },
+            'flash' => [
+                'status' => $request->session()->get('status'),
             ],
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
         ];

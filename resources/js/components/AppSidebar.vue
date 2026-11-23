@@ -2,6 +2,7 @@
 import { Link } from '@inertiajs/vue3';
 import {
     BookOpen,
+    Coins,
     FolderGit2,
     Images,
     LayoutGrid,
@@ -21,6 +22,7 @@ import {
     SidebarMenuItem,
 } from '@/components/ui/sidebar';
 import { dashboard } from '@/routes';
+import { index as creditsIndex } from '@/routes/credits';
 import {
     create as generateCreate,
     index as generationsIndex,
@@ -42,6 +44,11 @@ const mainNavItems: NavItem[] = [
         title: 'History',
         href: generationsIndex(),
         icon: Images,
+    },
+    {
+        title: 'Credits',
+        href: creditsIndex(),
+        icon: Coins,
     },
 ];
 

@@ -1,6 +1,9 @@
 <?php
 
+use App\Services\Pixelforge\PixelforgeProvider;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 /*
@@ -17,6 +20,22 @@ use Tests\TestCase;
 pest()->extend(TestCase::class)
     ->use(RefreshDatabase::class)
     ->in('Feature');
+
+/*
+|--------------------------------------------------------------------------
+| Global Hooks
+|--------------------------------------------------------------------------
+|
+| Every outbound HTTP call must be faked per-test. A stray request that
+| misses the fake patterns throws instead of silently hitting the network.
+| `uses()->beforeEach()->in('Feature')` applies to every Feature test;
+| a standalone beforeEach() here would only bind to this file.
+|
+*/
+
+uses()->beforeEach(function (): void {
+    Http::preventStrayRequests();
+})->in('Feature');
 
 /*
 |--------------------------------------------------------------------------
@@ -47,6 +66,12 @@ expect()->extend('toBeOne', function () {
 function something()
 {
     // ..
+}
+
+function seedPricingCacheAndKey(): void
+{
+    Cache::forget(PixelforgeProvider::PRICING_CACHE_KEY);
+    config(['services.pixelforge.api_key' => 'test-key']);
 }
 
 /**

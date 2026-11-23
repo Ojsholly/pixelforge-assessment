@@ -6,14 +6,11 @@ use App\Contracts\ImageGenerationProvider;
 use App\Data\Pixelforge\CreateGenerationInput;
 use App\Enums\ImageQuality;
 use App\Enums\ImageSize;
-use App\Enums\TransactionDirection;
-use App\Enums\TransactionType;
 use App\Exceptions\ProviderException;
 use App\Models\Generation;
-use App\Models\Transaction;
 use App\Models\User;
-use App\Models\Wallet;
 use App\Services\PricingCalculator;
+use App\Services\WalletService;
 use App\States\Generation\Failed;
 use App\Support\PromptSanitizer;
 use Carbon\CarbonImmutable;
@@ -26,6 +23,7 @@ final readonly class CreateGenerationAction
         private ImageGenerationProvider $provider,
         private PricingCalculator $calculator,
         private ApplyGenerationStateAction $applyState,
+        private WalletService $wallets,
     ) {}
 
     /**
@@ -42,16 +40,12 @@ final readonly class CreateGenerationAction
         $pricing = $this->provider->getPricing();
         $estimate = $this->calculator->estimate($prompt, $size, $quality, $referenceImages, $pricing);
 
-        // TX1: Pre-create generation row (and hold funds if funded) before outbound HTTP call
-        // so any racing webhook can match via metadata.local_generation_id.
+        // TX1: Pre-create generation row and hold estimated_max_user_cost before
+        // the outbound HTTP call so any racing webhook can match via
+        // metadata.local_generation_id. Under-funded wallets are rejected inside
+        // the wallet lock and roll back the generation row with them.
         /** @var Generation $generation */
         $generation = DB::transaction(function () use ($user, $prompt, $size, $quality, $referenceImages, $estimate): Generation {
-            /** @var Wallet $wallet */
-            $wallet = Wallet::query()
-                ->where('user_id', $user->id)
-                ->lockForUpdate()
-                ->firstOrFail();
-
             $generation = Generation::create([
                 'user_id' => $user->id,
                 'idempotency_key' => (string) Str::uuid(),
@@ -65,24 +59,7 @@ final readonly class CreateGenerationAction
                 'estimated_max_user_cost' => $estimate->userMaxNanodollars,
             ]);
 
-            if ($wallet->balance >= $estimate->userMaxNanodollars && $estimate->userMaxNanodollars > 0) {
-                $wallet->balance -= $estimate->userMaxNanodollars;
-                $wallet->save();
-
-                $generation->reserved_amount = $estimate->userMaxNanodollars;
-                $generation->save();
-
-                Transaction::forceCreate([
-                    'wallet_id' => $wallet->id,
-                    'transactionable_type' => $generation->getMorphClass(),
-                    'transactionable_id' => $generation->id,
-                    'direction' => TransactionDirection::Debit,
-                    'type' => TransactionType::Hold,
-                    'amount' => $estimate->userMaxNanodollars,
-                    'balance_after' => $wallet->balance,
-                    'description' => "Hold for generation #{$generation->id}",
-                ]);
-            }
+            $this->wallets->holdForGeneration($user, $generation, $estimate->userMaxNanodollars);
 
             return $generation;
         });
@@ -130,30 +107,7 @@ final readonly class CreateGenerationAction
             $locked->actual_user_cost = 0;
             $locked->completed_at = CarbonImmutable::now();
 
-            if ($locked->reserved_amount > 0) {
-                /** @var Wallet $wallet */
-                $wallet = Wallet::query()
-                    ->where('user_id', $locked->user_id)
-                    ->lockForUpdate()
-                    ->firstOrFail();
-
-                $refund = $locked->reserved_amount;
-                $wallet->balance += $refund;
-                $wallet->save();
-
-                Transaction::forceCreate([
-                    'wallet_id' => $wallet->id,
-                    'transactionable_type' => $locked->getMorphClass(),
-                    'transactionable_id' => $locked->id,
-                    'direction' => TransactionDirection::Credit,
-                    'type' => TransactionType::Release,
-                    'amount' => $refund,
-                    'balance_after' => $wallet->balance,
-                    'description' => "Full refund for rejected generation #{$locked->id}",
-                ]);
-
-                $locked->reserved_amount = 0;
-            }
+            $this->wallets->releaseForGeneration($locked, "Full refund for rejected generation #{$locked->id}");
 
             $locked->save();
         });

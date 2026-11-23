@@ -7,7 +7,9 @@ use App\Enums\ImageQuality;
 use App\Enums\ImageSize;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Generations\EstimateGenerationRequest;
+use App\Models\User;
 use App\Services\PricingCalculator;
+use App\Services\WalletService;
 use App\Support\PromptSanitizer;
 use Illuminate\Http\JsonResponse;
 
@@ -17,6 +19,7 @@ class EstimateGenerationController extends Controller
         EstimateGenerationRequest $request,
         ImageGenerationProvider $provider,
         PricingCalculator $calculator,
+        WalletService $wallets,
     ): JsonResponse {
         $validated = $request->validated();
 
@@ -34,6 +37,16 @@ class EstimateGenerationController extends Controller
             pricing: $provider->getPricing(),
         );
 
-        return response()->json($estimate->toArray());
+        // Include the current wallet balance so the Studio's insufficient-funds
+        // hint reflects background refunds/holds, not just the last page load.
+        /** @var User $user */
+        $user = $request->user();
+        $wallet = $wallets->ensureWallet($user);
+
+        return response()->json([
+            ...$estimate->toArray(),
+            'wallet_balance_nanodollars' => $wallet->balance,
+            'wallet_balance_display' => $wallet->formatted_balance,
+        ]);
     }
 }

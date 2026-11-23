@@ -4,6 +4,7 @@ use App\Models\User;
 use App\Services\Pixelforge\PixelforgeProvider;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 
 it('requires authentication to estimate generation costs', function (): void {
     $this->postJson(route('generations.estimate'), [
@@ -24,7 +25,7 @@ it('returns an exact nanodollar cost estimate for authenticated users even with 
     $user = User::factory()->create();
 
     $response = $this->actingAs($user)->postJson(route('generations.estimate'), [
-        'prompt' => str_repeat('a', 40),
+        'prompt' => Str::repeat('a', 40),
         'size' => '1024x1024',
         'quality' => 'medium',
         'reference_images' => [],
@@ -54,7 +55,7 @@ it('validates estimate inputs and returns 503 when pricing provider fails', func
             'https://example.com/4.png',
             'https://example.com/5.png',
         ],
-        'prompt' => str_repeat('a', 4001),
+        'prompt' => Str::repeat('a', 4001),
     ])->assertUnprocessable()
         ->assertJsonValidationErrors(['size', 'quality', 'reference_images', 'reference_images.0', 'prompt']);
 

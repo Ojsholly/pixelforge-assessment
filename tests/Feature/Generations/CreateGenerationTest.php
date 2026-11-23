@@ -3,19 +3,12 @@
 use App\Enums\TransactionType;
 use App\Models\Generation;
 use App\Models\User;
-use App\Services\Pixelforge\PixelforgeProvider;
 use App\States\Generation\Failed;
 use App\States\Generation\Queued;
 use App\Support\Money;
 use Illuminate\Http\Client\Request;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
-
-function seedPricingCacheAndKey(): void
-{
-    Cache::forget(PixelforgeProvider::PRICING_CACHE_KEY);
-    config(['services.pixelforge.api_key' => 'test-key']);
-}
+use Illuminate\Support\Str;
 
 it('requires authentication to view or submit generations', function (): void {
     $this->get(route('generations.create'))->assertRedirect(route('login'));
@@ -73,7 +66,7 @@ it('creates a generation with idempotency key, metadata, and wallet hold on 202'
         ->and($generation->transactions()->where('type', TransactionType::Hold)->count())->toBe(1);
 
     Http::assertSent(function (Request $request) use ($generation, $user): bool {
-        if (! str_ends_with($request->url(), '/generations')) {
+        if (! Str::endsWith($request->url(), '/generations')) {
             return false;
         }
 
@@ -170,7 +163,7 @@ it('retries 503 overloaded with the same idempotency key and releases hold if re
     $seenKeys = [];
 
     Http::fake(function (Request $request) use (&$seenKeys) {
-        if (str_ends_with($request->url(), '/pricing')) {
+        if (Str::endsWith($request->url(), '/pricing')) {
             return Http::response(validPricingPayload(), 200);
         }
 
@@ -206,6 +199,9 @@ it('does not retry 429 concurrency limit and releases hold immediately', functio
     seedPricingCacheAndKey();
 
     $user = User::factory()->create();
+    $wallet = $user->wallet()->firstOrFail();
+    $wallet->balance = 5 * Money::NANODOLLARS_PER_USD;
+    $wallet->save();
 
     Http::fake([
         'https://pixelforge.promptedit.dev/v1/pricing' => Http::response(validPricingPayload(), 200),
@@ -271,6 +267,9 @@ it('accepts internationalized and public IPv6 reference URLs', function (): void
     ]);
 
     $user = User::factory()->create();
+    $wallet = $user->wallet()->firstOrFail();
+    $wallet->balance = 5 * Money::NANODOLLARS_PER_USD;
+    $wallet->save();
 
     $this->actingAs($user)->post(route('generations.store'), [
         'prompt' => 'Test IDN and public IPv6 urls',
@@ -297,6 +296,9 @@ it('does not allow estimate requests to exhaust the generation submission thrott
     ]);
 
     $user = User::factory()->create();
+    $wallet = $user->wallet()->firstOrFail();
+    $wallet->balance = 5 * Money::NANODOLLARS_PER_USD;
+    $wallet->save();
 
     for ($i = 0; $i < 31; $i++) {
         $this->actingAs($user)->postJson(route('generations.estimate'), [

@@ -1,7 +1,14 @@
 <script setup lang="ts">
-import { Head, useForm } from '@inertiajs/vue3';
-import { AlertCircle, CheckCircle2, Plus, Sparkles, Trash2 } from '@lucide/vue';
-import { computed, onMounted, ref, watch } from 'vue';
+import { Head, useForm, usePage } from '@inertiajs/vue3';
+import {
+    AlertCircle,
+    CheckCircle2,
+    Coins,
+    Plus,
+    Sparkles,
+    Trash2,
+} from '@lucide/vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import InputError from '@/components/InputError.vue';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -15,6 +22,7 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { index as creditsIndex } from '@/routes/credits';
 import { create, estimate, store } from '@/routes/generations';
 
 type Option = {
@@ -31,10 +39,14 @@ type CostEstimate = {
         reasoning_min: number;
         reasoning_max: number;
     };
+    user_min_nanodollars: number;
+    user_max_nanodollars: number;
     user_min_usd: string;
     user_max_usd: string;
     user_min_display: string;
     user_max_display: string;
+    wallet_balance_nanodollars?: number;
+    wallet_balance_display?: string;
 };
 
 const props = defineProps<{
@@ -72,6 +84,30 @@ const unicodeCharCount = computed(() => Array.from(form.prompt.trim()).length);
 const canAddReferenceImage = computed(() => referenceImages.value.length < 4);
 const providerError = computed(
     () => (form.errors as Record<string, string | undefined>).provider,
+);
+const balanceError = computed(
+    () => (form.errors as Record<string, string | undefined>).balance,
+);
+const wallet = computed(() => usePage().props.wallet);
+// Prefer the balance echoed by the estimate endpoint — it's refreshed on every
+// estimate call, so background refunds/holds don't leave the display stale.
+const walletBalance = computed(
+    () =>
+        costEstimate.value?.wallet_balance_nanodollars ??
+        wallet.value?.balance ??
+        null,
+);
+const walletBalanceDisplay = computed(
+    () =>
+        costEstimate.value?.wallet_balance_display ??
+        wallet.value?.balance_display ??
+        null,
+);
+const insufficientBalance = computed(
+    () =>
+        walletBalance.value !== null &&
+        costEstimate.value !== null &&
+        costEstimate.value.user_max_nanodollars > walletBalance.value,
 );
 
 function refImageError(index: number): string | undefined {
@@ -122,6 +158,10 @@ async function refreshEstimate(): Promise<void> {
         }
 
         costEstimate.value = data as CostEstimate;
+        // A fresh estimate supersedes a stale backend balance rejection — the
+        // insufficient-funds check now reads this payload's balance. `balance`
+        // is a server error key, not a form field, so clearErrors won't accept it.
+        delete (form.errors as Record<string, string | undefined>).balance;
     } catch {
         estimateError.value = 'Network error while fetching estimate.';
     } finally {
@@ -145,8 +185,21 @@ watch(
     { deep: true },
 );
 
+function handleVisibilityChange(): void {
+    if (document.visibilityState === 'visible') {
+        void refreshEstimate();
+    }
+}
+
 onMounted(() => {
     void refreshEstimate();
+    // Re-estimate when returning from the credits tab so a top-up lifts the
+    // insufficient-balance block without touching the form again.
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+});
+
+onUnmounted(() => {
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
 });
 
 function addReferenceImage(): void {
@@ -177,14 +230,24 @@ function submit(): void {
     <div class="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 md:p-6">
         <Head title="Generate Image" />
 
-        <div class="flex flex-col gap-1">
-            <h1 class="text-2xl font-semibold tracking-tight">
-                Image Generation Studio
-            </h1>
-            <p class="text-sm text-muted-foreground">
-                Describe the image you want to generate. Review the live cost
-                estimate before submitting.
-            </p>
+        <div class="flex flex-wrap items-start justify-between gap-3">
+            <div class="flex flex-col gap-1">
+                <h1 class="text-2xl font-semibold tracking-tight">
+                    Image Generation Studio
+                </h1>
+                <p class="text-sm text-muted-foreground">
+                    Describe the image you want to generate. Review the live
+                    cost estimate before submitting.
+                </p>
+            </div>
+            <Badge
+                v-if="walletBalanceDisplay"
+                variant="secondary"
+                class="gap-1.5 px-3 py-1.5 text-sm"
+            >
+                <Coins class="size-4" />
+                Balance {{ walletBalanceDisplay }}
+            </Badge>
         </div>
 
         <Alert
@@ -204,6 +267,29 @@ function submit(): void {
             <AlertTitle>Provider Error</AlertTitle>
             <AlertDescription>
                 {{ providerError }}
+            </AlertDescription>
+        </Alert>
+
+        <Alert v-if="insufficientBalance || balanceError" variant="destructive">
+            <AlertCircle class="size-4" />
+            <AlertTitle>Insufficient Balance</AlertTitle>
+            <AlertDescription>
+                <p>
+                    {{
+                        balanceError ??
+                        `This generation requires up to ${costEstimate?.user_max_display}, but your balance is ${walletBalanceDisplay}.`
+                    }}
+                </p>
+                <Button as-child variant="outline" size="sm" class="mt-2">
+                    <a
+                        :href="creditsIndex().url"
+                        target="_blank"
+                        rel="noopener"
+                    >
+                        <Coins class="mr-1.5 size-3.5" />
+                        Buy credits
+                    </a>
+                </Button>
             </AlertDescription>
         </Alert>
 
@@ -335,7 +421,8 @@ function submit(): void {
                                 :disabled="
                                     form.processing ||
                                     unicodeCharCount === 0 ||
-                                    unicodeCharCount > 4000
+                                    unicodeCharCount > 4000 ||
+                                    insufficientBalance
                                 "
                             >
                                 <Sparkles class="mr-2 size-4" />
