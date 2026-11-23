@@ -1,10 +1,12 @@
 <?php
 
+use App\Http\Controllers\Admin\ReportController;
 use App\Http\Controllers\Credits\WalletController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\Generations\EstimateGenerationController;
 use App\Http\Controllers\Generations\GenerationController;
 use App\Http\Controllers\Webhooks\PixelforgeWebhookController;
+use App\Http\Middleware\EnsureUserIsAdmin;
 use Illuminate\Support\Facades\Route;
 
 Route::inertia('/', 'Welcome')->name('home');
@@ -30,6 +32,13 @@ Route::middleware(['auth', 'verified'])->group(function (): void {
     Route::post('credits', [WalletController::class, 'purchase'])
         ->middleware('throttle:30,1,credits_purchase')
         ->name('credits.purchase');
+
+    Route::middleware(EnsureUserIsAdmin::class)
+        ->prefix('admin')
+        ->name('admin.')
+        ->group(function (): void {
+            Route::get('report', ReportController::class)->name('report');
+        });
 });
 
 require __DIR__.'/settings.php';

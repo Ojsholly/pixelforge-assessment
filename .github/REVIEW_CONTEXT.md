@@ -5,11 +5,21 @@
 Pixelforge Image Studio (Laravel 13, PHP 8.4, Vue 3, Inertia v3, Wayfinder, Tailwind CSS v4, PostgreSQL 17).
 Manages asynchronous AI image generations, exact integer-nanodollar billing (+25% markup), signed idempotent webhooks, and wallet/ledger accounting.
 
-## Conventions — .ai/rules (Current PR)
+## Epic 07 — Admin Usage & Profit Report (Current PR)
 
-- Docs-only change: `.ai/rules/` records 16 inferred project conventions across 13 area files plus a generated `index.md` mapping each glob to its rule file. Written via `Laravel\Boost\Rules\RuleRepository::write()` (the same code path as Boost's `record-rule` MCP tool, which was unreachable) so the `paths:` frontmatter and index format are canonical.
-- Content covers architecture (feature-grouped dirs, Action `execute()`, contracts+adapters, readonly DTOs, model-states, pipeline filters, presenters, nanodollar/WalletService ledger invariants) plus checklist conventions (Form Requests, `Gate::authorize`, `to_route`, string-column enums, `Str::*`, throttle keys, `CarbonImmutable`, `Http::fake`/`preventStrayRequests`, Wayfinder).
-- Reviewer note: nothing here affects runtime; verify the notes describe the code as it exists rather than aspirational style.
+- **Provider client (`PixelforgeProvider::getUsage`):** Implements `GET /v1/usage?start_date&end_date` with the same retry/exception pattern as `getGeneration` — retry `ConnectionException`/5xx, `RequestException`→`ProviderException` via `toProviderException`, non-object JSON → 502 `malformed_response`. The last `LogicException` placeholder in the contract is gone.
+- **DTO hardening (`UsageReportData`/`UsageDayData::fromArray`):** Validates required keys and scalar types, `data` must be an array of objects; throws `InvalidArgumentException` (wrapped as `ProviderException` `malformed_response`) instead of `ErrorException`/`TypeError` on malformed wire payloads — same guard style as `ProviderUsageData`/`PricingData`.
+- **Admin access (`EnsureUserIsAdmin` + `user:make-admin` + `AdminUserSeeder`):** Middleware aborts 403 unless `is_admin`; `php artisan user:make-admin {email}` promotes an existing user; `AdminUserSeeder` is opt-in (`db:seed --class=AdminUserSeeder`) and refuses to run without `SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD` env vars — no hardcoded admin credentials.
+- **Date-range validation (`UsageReportRequest`):** `start_date`/`end_date` are UTC `Y-m-d`, `≤ today`, `end ≥ start`; a `withValidator` hook caps the inclusive span at `MAX_RANGE_DAYS` (92) matching Pixelforge's own `date_range_too_long` limit. Default = last 30 days ending today (matching the provider default window).
+- **Aggregation (`App\Actions\Admin\UsageReportAction`):** Two `DB::table` queries (no model hydration): succeeded generations grouped by `date(completed_at)` — portable across SQLite/Postgres — and per-user totals via `users` join. Provider cost truth is `actual_provider_cost`; profit = `user_spend - provider_cost` exactly in nanodollars. Failed/queued/processing rows are excluded by the `status` + `completed_at` filters.
+- **Reconciliation:** Local provider cost is compared per-day and in total against the provider's `GET /v1/usage` report for the same UTC range; `delta = local_provider_cost - reported_cost` (positive = we recorded more than Pixelforge billed). Days present on either side are unioned and sorted.
+- **Presentation (`App\Support\UsageReportPresenter`):** Every money figure ships as both an exact 9-decimal USD string (`*_usd`, provider wire format) and a display string (`*_display`), so no float ever crosses the boundary. `Admin/Report.vue` renders a date-range form (via `router.get` on the Wayfinder `report` route), five total cards, a daily reconciliation table, and a per-user table.
+- **Navigation (`AppSidebar.vue`):** Adds a conditional "Usage Report" nav item (ChartColumn icon) shown only when `page.props.auth.user.is_admin === true`; `is_admin` added to the `User` type.
+- **Route:** `GET /admin/report` named `admin.report` inside the `auth`/`verified` + `EnsureUserIsAdmin` group.
+
+## Conventions — .ai/rules (Merged)
+
+- `.ai/rules/` records 16 inferred project conventions across 13 area files plus a generated `index.md` mapping each glob to its rule file.
 
 ## Epic 06 — Wallets & Balances (Merged)
 
