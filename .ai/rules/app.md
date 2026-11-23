@@ -24,3 +24,11 @@ Dates are immutable: AppServiceProvider sets Date::use(CarbonImmutable::class), 
 ## Error handling: boundary try/catch only, typed exceptions, central render
 
 Controllers and request-facing code never try/catch - exceptions bubble to the handler. try/catch belongs only at integration boundaries and must translate the failure into a typed domain exception or compensate: PixelforgeProvider wraps ConnectionException/RequestException/InvalidArgumentException as ProviderException, WalletService retries UniqueConstraintViolationException in ensureWallet, and actions like CreateGenerationAction catch ProviderException only to transition the generation to Failed and release the hold. ProviderException is rendered centrally in bootstrap/app.php (Inertia back-with-errors or JSON for expectsJson). Never log-and-swallow or silently degrade on a caught exception.
+
+## Never cache objects — cache config blocks unserialization
+
+config/cache.php sets serializable_classes=false, so every cached object unserializes to __PHP_Incomplete_Class on read. Cache only scalars and arrays (wire payloads); hydrate DTOs/models on every read.
+
+## Queued work lives in app/Jobs; commands only orchestrate
+
+Jobs implement ShouldQueue plus ShouldBeUnique when duplicate dispatches are possible (uniqueId() keys the dedup; the unique lock holds through queueing and processing, released on finish/fail). Commands and controllers select work and dispatch jobs or Bus::batch — multi-step per-item logic lives in an Action the job calls, never inline in the command.

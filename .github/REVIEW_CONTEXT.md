@@ -5,7 +5,25 @@
 Pixelforge Image Studio (Laravel 13, PHP 8.4, Vue 3, Inertia v3, Wayfinder, Tailwind CSS v4, PostgreSQL 17).
 Manages asynchronous AI image generations, exact integer-nanodollar billing (+25% markup), signed idempotent webhooks, and wallet/ledger accounting.
 
-## Epic 07 — Admin Usage & Profit Report (Current PR)
+## Refactor & Reliability Pass — Queued Webhooks, Provider Pipeline, Landing (Current PR)
+
+- **Live-verified bug fix (`PixelforgeProvider::getPricing`):** the method cached the `PricingData` DTO — under `serializable_classes=false` (the shipped cache config, and production's database store) every cache hit unserialized to `__PHP_Incomplete_Class` and crashed generation submission. Now caches the validated wire array and hydrates the DTO per read. Regression test asserts the cached value is an array.
+- **Provider pipeline dedup:** the four endpoint methods each repeated the retry predicate, `ConnectionException`→503 catch, `failed()`→`toProviderException`, and is_array+DTO-hydrate guards. `send()` owns retry+translation, `objectPayload()`/`hydrate()` own decode+malformed→502. Same signatures, no behavior change.
+- **Queued webhook processing (`ProcessWebhookEvent`):** controller now only verifies the signature, persists the event, and dispatches — inside the provider's 10s budget under any load. The job is `ShouldBeUnique` keyed on `provider_event_id` (Laravel's unique lock holds through queueing+processing, releases on finish/fail), `tries=3`/`backoff=[10,60]`, and re-locks the event row + `processed_at` guard inside its transaction — redeliveries dedupe at dispatch, late ones no-op at the guard. `delivery_attempt` still bumps on duplicate inserts.
+- **`webhook_events.provider` column:** records the delivering provider (`services.image_provider.driver`) — the event log is now self-describing for multi-provider support.
+- **Body-size guard:** 256 KB cap on the raw webhook body before `json_decode` (real payloads ~2 KB) — flood resistance without touching signature verification.
+- **Reconcile command → jobs:** `ReconcileStaleGenerationsCommand` is thin: selects stale generations, fans out a named `Bus::batch` (`allowFailures`) of `ReconcileGenerationJob` (`ShouldBeUnique` per generation, `tries=2`). Per-generation polling logic moved verbatim into `ReconcileGenerationAction`; the generation row lock + state machine still serialize against live webhook arrivals. Schedule (`everyFiveMinutes` + `withoutOverlapping`) unchanged.
+- **`Model::preventLazyLoading(!production)`** enabled; `transactions` gains a `(transactionable_type, transactionable_id)` index — the orphaned-generation wallet lookup (`walletForGeneration`) couldn't use the wallet_id-led unique index.
+- **`.ai/rules/app.md`:** two new conventions — never cache objects (`serializable_classes=false` footgun), and the jobs convention (ShouldQueue/ShouldBeUnique, commands only orchestrate).
+- **Landing page (`Welcome.vue`):** Studio-flavored hero + three feature cards mirroring shipped functionality + 3-step strip + minimal footer. shadcn Button/Badge, lucide icons, Wayfinder routes, dark-mode aware, zero new dependencies.
+- **QA-phase additions (later commits):** `->whereNumber('generation')` on show/refresh routes — a non-numeric segment previously 500'd on Postgres bigint binding (live-QA finding, regression-tested); `AddSecurityHeaders` middleware (`nosniff`, `DENY`, `strict-origin-when-cross-origin`) for app-level parity with Cloud's edge headers; `DashboardController` resolves the wallet via `WalletService::ensureWallet` like every other consumer; estimate 4xx responses now surface the real Laravel `message` (response data may be an unparsed JSON string) and cancelled debounced estimates are `.catch()`ed instead of rejecting unhandled; `README.md` (index) + `docs/{setup,architecture,pixelforge-api}.md` for graders.
+
+### Verification
+
+- **Live provider contract audit:** all endpoints exercised with the real key — 29/29 wire checks (202 create + all 16 generation fields, `Idempotent-Replayed` replay, 409 on param-conflicting key reuse, `date_range_too_long`, `validation_failed`+`param`+`errors`, `invalid_api_key`, `content_policy_violation`, `overloaded`+`Retry-After`, usage/day/total shapes). Real `[succeed]`/`[fail]`/`[slow]`/`[duplicate]` events landed through a public tunnel — settlement, full-refund on failure, `generation_failed` error shape, and usage reconciliation exact to the nanodollar.
+- **187 tests / 1,143 assertions** green; Pint, Larastan, Rector, `vp check`, `vue-tsc`, `vite build` all clean.
+
+## Epic 07 — Admin Usage & Profit Report (Merged)
 
 - **Provider client (`PixelforgeProvider::getUsage`):** Implements `GET /v1/usage?start_date&end_date` with the same retry/exception pattern as `getGeneration` — retry `ConnectionException`/5xx, `RequestException`→`ProviderException` via `toProviderException`, non-object JSON → 502 `malformed_response`. The last `LogicException` placeholder in the contract is gone.
 - **DTO hardening (`UsageReportData`/`UsageDayData::fromArray`):** Validates required keys and scalar types, `data` must be an array of objects; throws `InvalidArgumentException` (wrapped as `ProviderException` `malformed_response`) instead of `ErrorException`/`TypeError` on malformed wire payloads — same guard style as `ProviderUsageData`/`PricingData`.

@@ -1,6 +1,7 @@
 <?php
 
 use App\Contracts\ImageGenerationProvider;
+use App\Data\Pixelforge\PricingData;
 use App\Exceptions\ProviderException;
 use App\Services\Pixelforge\PixelforgeProvider;
 use Illuminate\Http\Client\ConnectionException;
@@ -29,6 +30,21 @@ it('fetches and caches public pricing from GET /v1/pricing without requiring an 
         ->and($second->charactersPerTextToken)->toBe(4);
 
     Http::assertSentCount(1);
+});
+
+it('caches the raw pricing payload rather than the DTO so serializable_classes=false stores work', function (): void {
+    Cache::forget(PixelforgeProvider::PRICING_CACHE_KEY);
+    config(['services.pixelforge.api_key' => '']);
+
+    Http::fake([
+        'https://pixelforge.promptedit.dev/v1/pricing' => Http::response(validPricingPayload(), 200),
+    ]);
+
+    $provider = app(ImageGenerationProvider::class);
+    $provider->getPricing();
+
+    expect(Cache::get(PixelforgeProvider::PRICING_CACHE_KEY))->toBeArray()
+        ->and($provider->getPricing())->toBeInstanceOf(PricingData::class);
 });
 
 it('throws ProviderException without caching when Pixelforge pricing fails', function (): void {
