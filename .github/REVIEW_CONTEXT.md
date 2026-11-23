@@ -16,6 +16,7 @@ Manages asynchronous AI image generations, exact integer-nanodollar billing (+25
 - **`Model::preventLazyLoading(!production)`** enabled; `transactions` gains a `(transactionable_type, transactionable_id)` index — the orphaned-generation wallet lookup (`walletForGeneration`) couldn't use the wallet_id-led unique index.
 - **`.ai/rules/app.md`:** two new conventions — never cache objects (`serializable_classes=false` footgun), and the jobs convention (ShouldQueue/ShouldBeUnique, commands only orchestrate).
 - **Landing page (`Welcome.vue`):** Studio-flavored hero + three feature cards mirroring shipped functionality + 3-step strip + minimal footer. shadcn Button/Badge, lucide icons, Wayfinder routes, dark-mode aware, zero new dependencies.
+- **QA-phase additions (later commits):** `->whereNumber('generation')` on show/refresh routes — a non-numeric segment previously 500'd on Postgres bigint binding (live-QA finding, regression-tested); `AddSecurityHeaders` middleware (`nosniff`, `DENY`, `strict-origin-when-cross-origin`) for app-level parity with Cloud's edge headers; `DashboardController` resolves the wallet via `WalletService::ensureWallet` like every other consumer; estimate 4xx responses now surface the real Laravel `message` (response data may be an unparsed JSON string) and cancelled debounced estimates are `.catch()`ed instead of rejecting unhandled; `README.md` (index) + `docs/{setup,architecture,pixelforge-api}.md` for graders.
 
 ### Verification
 
