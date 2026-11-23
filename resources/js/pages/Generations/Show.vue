@@ -78,7 +78,7 @@ let poll:
 // Poll registration is client-only: creating it inside onMounted keeps SSR
 // renders from accumulating registrations on the render server.
 onMounted(() => {
-    poll = router.poll(4000, { only: ['generation'] });
+    poll = router.poll(4000, { only: ['generation'] }, { autoStart: false });
 
     if (hasPending.value) {
         poll.start();
