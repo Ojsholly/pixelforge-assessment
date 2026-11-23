@@ -136,22 +136,44 @@ function refreshEstimate(): void {
         costEstimate.value = null;
     };
 
-    estimateHttp.submit(estimate(), {
-        onSuccess: (data) => {
-            costEstimate.value = data as CostEstimate;
-            // A fresh estimate supersedes a stale backend balance rejection — the
-            // insufficient-funds check now reads this payload's balance. `balance`
-            // is a server error key, not a form field, so clearErrors won't accept it.
-            delete (form.errors as Record<string, string | undefined>).balance;
-        },
-        onError: () => fail('Unable to calculate estimate.'),
-        onHttpException: (response) =>
-            fail(
-                (response.data as { message?: string })?.message ??
-                    'Unable to calculate estimate.',
-            ),
-        onNetworkError: () => fail('Network error while fetching estimate.'),
-    });
+    const responseMessage = (data: unknown): string | null => {
+        let parsed: unknown = data;
+
+        if (typeof parsed === 'string') {
+            try {
+                parsed = JSON.parse(parsed);
+            } catch {
+                return null;
+            }
+        }
+
+        const message = (parsed as { message?: unknown } | null)?.message;
+
+        return typeof message === 'string' && message !== '' ? message : null;
+    };
+
+    void estimateHttp
+        .submit(estimate(), {
+            onSuccess: (data) => {
+                costEstimate.value = data as CostEstimate;
+                // A fresh estimate supersedes a stale backend balance rejection — the
+                // insufficient-funds check now reads this payload's balance. `balance`
+                // is a server error key, not a form field, so clearErrors won't accept it.
+                delete (form.errors as Record<string, string | undefined>)
+                    .balance;
+            },
+            onError: () => fail('Unable to calculate estimate.'),
+            onHttpException: (response) =>
+                fail(
+                    responseMessage(response.data) ??
+                        'Unable to calculate estimate.',
+                ),
+            onNetworkError: () =>
+                fail('Network error while fetching estimate.'),
+        })
+        .catch(() => {
+            // Cancelled submissions reject the promise; a newer estimate is queued.
+        });
 }
 
 function scheduleEstimate(): void {
