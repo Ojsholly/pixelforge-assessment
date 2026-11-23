@@ -54,12 +54,30 @@ it('skips an existing email without resetting the password or double-funding', f
         )->toBe(1);
 });
 
-it('refuses to run without configured credentials', function (): void {
+it('refuses to run without a configured email', function (): void {
     // Clear explicitly so the result can't depend on the local .env.
     config(['app.seed_user.email' => null, 'app.seed_user.password' => null]);
 
     expect(fn () => $this->artisan('db:seed', ['--class' => DemoUserSeeder::class]))
         ->toThrow(RuntimeException::class, 'SEED_USER_EMAIL');
+});
+
+it('generates and prints a strong password when none is configured', function (): void {
+    config([
+        'app.seed_user.email' => 'demo@example.com',
+        'app.seed_user.password' => null,
+        'app.seed_user.credits_usd' => '25.00',
+    ]);
+
+    $this->artisan('db:seed', ['--class' => DemoUserSeeder::class])
+        ->expectsOutputToContain('generated password')
+        ->assertSuccessful();
+
+    $user = User::where('email', 'demo@example.com')->sole();
+
+    expect($user->email_verified_at)->not->toBeNull()
+        ->and($user->password)->toStartWith('$2y$')
+        ->and($user->wallet->balance)->toBe(25 * Money::NANODOLLARS_PER_USD);
 });
 
 it('treats a blank configured credit as no credit', function (): void {

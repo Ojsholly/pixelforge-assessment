@@ -29,16 +29,16 @@ npm ci && npm run build
 
 Application-specific settings on top of the Laravel starter kit:
 
-| Variable                                                                              | Required | Purpose                                                                                                                                                            |
-| ------------------------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `IMAGE_PROVIDER`                                                                      | yes      | Provider driver — `pixelforge`                                                                                                                                     |
-| `PIXELFORGE_BASE_URL`                                                                 | yes      | API base **including `/v1`**, e.g. `https://pixelforge.promptedit.dev/v1`                                                                                          |
-| `PIXELFORGE_API_KEY`                                                                  | yes      | Bearer key for all provider calls                                                                                                                                  |
-| `PIXELFORGE_WEBHOOK_SECRET`                                                           | yes      | HMAC secret for `POST /webhooks/pixelforge` signature verification                                                                                                 |
-| `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD`                                            | no       | Opt-in: `AdminUserSeeder` creates this admin on `db:seed`. Never promote an existing user.                                                                         |
-| `SEED_USER_EMAIL` / `SEED_USER_PASSWORD` / `SEED_USER_NAME` / `SEED_USER_CREDITS_USD` | no       | Opt-in: `DemoUserSeeder` creates this pre-verified demo user and optionally funds its wallet (credits in USD, default `0.00`). Skips silently if the email exists. |
-| `QUEUE_CONNECTION`                                                                    | yes      | `database` — webhook processing + reconciliation are queued                                                                                                        |
-| `CACHE_STORE`                                                                         | yes      | any real store (`database` locally) — pricing is cached 5 min                                                                                                      |
+| Variable                                                                                       | Required | Purpose                                                                                                                                                                                                         |
+| ---------------------------------------------------------------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `IMAGE_PROVIDER`                                                                               | yes      | Provider driver — `pixelforge`                                                                                                                                                                                  |
+| `PIXELFORGE_BASE_URL`                                                                          | yes      | API base **including `/v1`**, e.g. `https://pixelforge.promptedit.dev/v1`                                                                                                                                       |
+| `PIXELFORGE_API_KEY`                                                                           | yes      | Bearer key for all provider calls                                                                                                                                                                               |
+| `PIXELFORGE_WEBHOOK_SECRET`                                                                    | yes      | HMAC secret for `POST /webhooks/pixelforge` signature verification                                                                                                                                              |
+| `SEED_ADMIN_EMAIL` (+ optional `SEED_ADMIN_PASSWORD`)                                          | no       | Opt-in: `AdminUserSeeder` creates this verified admin on `db:seed`. Blank password → generated and printed once. Never promotes an existing user.                                                               |
+| `SEED_USER_EMAIL` (+ optional `SEED_USER_PASSWORD`, `SEED_USER_NAME`, `SEED_USER_CREDITS_USD`) | no       | Opt-in: `DemoUserSeeder` creates this pre-verified demo user and optionally funds its wallet (credits in USD, default `0.00`). Blank password → generated and printed once. Skips silently if the email exists. |
+| `QUEUE_CONNECTION`                                                                             | yes      | `database` — webhook processing + reconciliation are queued                                                                                                                                                     |
+| `CACHE_STORE`                                                                                  | yes      | any real store (`database` locally) — pricing is cached 5 min                                                                                                                                                   |
 
 ## Run
 
@@ -78,11 +78,12 @@ the `Pixelforge-Signature` HMAC before any decoding or DB writes.
 php artisan user:make-admin you@example.com
 ```
 
-or seed one: set `SEED_ADMIN_EMAIL` + `SEED_ADMIN_PASSWORD`, then
+or seed one: set `SEED_ADMIN_EMAIL` (plus `SEED_ADMIN_PASSWORD` if you want
+to choose it — a blank password generates and prints a strong one), then
 `php artisan db:seed --class=AdminUserSeeder` (`AdminUserSeeder` only creates
 new users and refuses to promote existing ones). `DatabaseSeeder` calls it
-automatically when the env vars are set. The report lives at `/admin/report`
-(403 for non-admins).
+automatically when the email env var is set. The report lives at
+`/admin/report` (403 for non-admins).
 
 ## Demo user
 

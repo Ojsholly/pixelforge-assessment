@@ -9,12 +9,15 @@ use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 use RuntimeException;
+use Symfony\Component\Console\Formatter\OutputFormatter;
 
 /**
  * Opt-in demo account: run `php artisan db:seed --class=DemoUserSeeder` with
- * SEED_USER_EMAIL and SEED_USER_PASSWORD set in the environment. Credentials
- * are never hardcoded — the seeder refuses to run without them.
+ * SEED_USER_EMAIL set in the environment. Credentials are never hardcoded —
+ * when SEED_USER_PASSWORD is also set it is used; otherwise a strong password
+ * is generated and printed to the console once.
  * SEED_USER_CREDITS_USD optionally funds the wallet (default `0.00`).
  *
  * Like AdminUserSeeder it only ever creates a fresh account; an existing
@@ -31,12 +34,9 @@ class DemoUserSeeder extends Seeder
     public function run(): void
     {
         $email = config('app.seed_user.email');
-        $password = config('app.seed_user.password');
 
-        if (! is_string($email) || $email === '' || ! is_string($password) || $password === '') {
-            throw new RuntimeException(
-                'Set SEED_USER_EMAIL and SEED_USER_PASSWORD to seed a demo user.',
-            );
+        if (! is_string($email) || $email === '') {
+            throw new RuntimeException('Set SEED_USER_EMAIL to seed a demo user.');
         }
 
         if (User::query()->where('email', $email)->exists()) {
@@ -44,6 +44,10 @@ class DemoUserSeeder extends Seeder
 
             return;
         }
+
+        $password = config('app.seed_user.password');
+        $generated = ! is_string($password) || $password === '';
+        $password = $generated ? Str::password() : $password;
 
         // User creation and the welcome credit commit atomically: a bad
         // SEED_USER_CREDITS_USD must not leave an account the existing-email
@@ -71,5 +75,13 @@ class DemoUserSeeder extends Seeder
                 $walletService->purchase($user, $credits, 'Welcome credit');
             }
         });
+
+        if ($generated) {
+            // See AdminUserSeeder — escape so console markup can't corrupt
+            // the printed password.
+            $this->command?->warn(
+                'Demo user seeded for ['.$email.'] with generated password: '.OutputFormatter::escape($password)
+            );
+        }
     }
 }

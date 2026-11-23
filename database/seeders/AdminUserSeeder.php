@@ -6,12 +6,15 @@ use App\Models\User;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 use RuntimeException;
+use Symfony\Component\Console\Formatter\OutputFormatter;
 
 /**
  * Opt-in admin account: run `php artisan db:seed --class=AdminUserSeeder` with
- * SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD set in the environment. Credentials
- * are never hardcoded — the seeder refuses to run without them.
+ * SEED_ADMIN_EMAIL set in the environment. Credentials are never hardcoded —
+ * when SEED_ADMIN_PASSWORD is also set it is used; otherwise a strong password
+ * is generated and printed to the console once.
  *
  * It only ever creates a fresh account: promoting an already-registered email
  * would hand the new admin password to whoever owns its existing sessions.
@@ -27,12 +30,9 @@ class AdminUserSeeder extends Seeder
     public function run(): void
     {
         $email = config('app.seed_admin.email');
-        $password = config('app.seed_admin.password');
 
-        if (! is_string($email) || $email === '' || ! is_string($password) || $password === '') {
-            throw new RuntimeException(
-                'Set SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD to seed an admin user.',
-            );
+        if (! is_string($email) || $email === '') {
+            throw new RuntimeException('Set SEED_ADMIN_EMAIL to seed an admin user.');
         }
 
         if (User::query()->where('email', $email)->exists()) {
@@ -40,6 +40,10 @@ class AdminUserSeeder extends Seeder
                 "[{$email}] is already registered — promote it with: php artisan user:make-admin {$email}",
             );
         }
+
+        $password = config('app.seed_admin.password');
+        $generated = ! is_string($password) || $password === '';
+        $password = $generated ? Str::password() : $password;
 
         $user = new User;
         $user->forceFill([
@@ -49,5 +53,14 @@ class AdminUserSeeder extends Seeder
             'email_verified_at' => now(),
             'is_admin' => true,
         ])->save();
+
+        if ($generated) {
+            // Escape before printing — Str::password() can emit <, >, or \,
+            // which the console formatter would otherwise eat as markup and
+            // hand the operator a password that doesn't match the database.
+            $this->command?->warn(
+                'Admin seeded for ['.$email.'] with generated password: '.OutputFormatter::escape($password)
+            );
+        }
     }
 }

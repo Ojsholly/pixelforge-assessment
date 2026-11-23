@@ -23,27 +23,35 @@ Then set the Pixelforge credentials in `.env` — see
 
 ## Demo accounts
 
-Seed accounts exist on the live demo. Create the same accounts locally by
-seeding with their credentials — the demo credentials below are published on
-purpose for this take-home; rotate them for any real deployment and treat
-the demo accounts as shared/public (anyone with the URL can log in, so they
-may be reset periodically):
+Verified demo accounts exist on the live deployment — their credentials are
+shared in the private submission notes rather than committed to this repo:
 
-| Account    | Email                     | Password            | Notes                              |
-| ---------- | ------------------------- | ------------------- | ---------------------------------- |
-| Demo user  | `demo@pixelforge.studio`  | `Demo-Studio-2026!` | Pre-verified, $25.00 wallet credit |
-| Demo admin | `admin@pixelforge.studio` | `Demo-Admin-2026!`  | Access to `/admin/report`          |
+| Account    | Email                     | Notes                              |
+| ---------- | ------------------------- | ---------------------------------- |
+| Demo user  | `demo@pixelforge.studio`  | Pre-verified, $25.00 wallet credit |
+| Demo admin | `admin@pixelforge.studio` | Access to `/admin/report`          |
+
+Provision equivalent accounts locally two ways — passwords are never
+hardcoded:
 
 ```bash
-SEED_USER_EMAIL=demo@pixelforge.studio SEED_USER_PASSWORD='Demo-Studio-2026!' \
-SEED_USER_CREDITS_USD=25.00 SEED_ADMIN_EMAIL=admin@pixelforge.studio \
-SEED_ADMIN_PASSWORD='Demo-Admin-2026!' php artisan db:seed
+# Let the seeders generate strong passwords (printed to the console once):
+SEED_USER_EMAIL=demo@example.test SEED_USER_CREDITS_USD=25.00 \
+SEED_ADMIN_EMAIL=admin@example.test php artisan db:seed
+
+# Or supply your own via the environment:
+SEED_USER_EMAIL=demo@example.test SEED_USER_PASSWORD='pick-your-own' \
+SEED_USER_CREDITS_USD=25.00 SEED_ADMIN_EMAIL=admin@example.test \
+SEED_ADMIN_PASSWORD='pick-your-own' php artisan db:seed
 ```
 
-The same values work persisted in `.env` (`SEED_*` keys) — `db:seed` only
-creates accounts whose env credentials are configured, and skips emails that
-already exist. Email verification is skipped for seeded accounts, which
-matters on deployments whose mail driver only logs.
+`db:seed` only creates accounts whose `SEED_*_EMAIL` is configured (persisted
+`.env` values work the same). An existing demo email is skipped, while a
+configured admin email that already belongs to a **non-admin** stops the seed
+with the `user:make-admin` guidance — promoting silently could hand a fresh
+password to a live session. Seeding can never reset a live password or
+double-fund a wallet. Email verification is skipped for seeded accounts,
+which matters on deployments whose mail driver only logs.
 
 ## Documentation
 

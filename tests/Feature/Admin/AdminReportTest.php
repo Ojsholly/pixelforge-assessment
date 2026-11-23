@@ -357,6 +357,20 @@ it('seeds an admin only when the email is unregistered', function (): void {
     expect(User::where('email', 'admin@example.com')->sole()->is_admin)->toBeTrue();
 });
 
+it('seeds an admin with a generated password when none is configured', function (): void {
+    config(['app.seed_admin.email' => 'admin@example.com', 'app.seed_admin.password' => null]);
+
+    $this->artisan('db:seed', ['--class' => AdminUserSeeder::class])
+        ->expectsOutputToContain('generated password')
+        ->assertSuccessful();
+
+    $user = User::where('email', 'admin@example.com')->sole();
+
+    expect($user->is_admin)->toBeTrue()
+        ->and($user->email_verified_at)->not->toBeNull()
+        ->and($user->password)->toStartWith('$2y$');
+});
+
 it('refuses to seed over an existing account', function (): void {
     $existing = User::factory()->create(['email' => 'admin@example.com']);
     config(['app.seed_admin.email' => 'admin@example.com', 'app.seed_admin.password' => 'secret']);
