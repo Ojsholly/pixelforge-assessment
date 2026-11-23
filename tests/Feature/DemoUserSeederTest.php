@@ -55,9 +55,41 @@ it('skips an existing email without resetting the password or double-funding', f
 });
 
 it('refuses to run without configured credentials', function (): void {
-    // Clear explicitly — .env.example ships demo defaults for graders.
+    // Clear explicitly so the result can't depend on the local .env.
     config(['app.seed_user.email' => null, 'app.seed_user.password' => null]);
 
     expect(fn () => $this->artisan('db:seed', ['--class' => DemoUserSeeder::class]))
         ->toThrow(RuntimeException::class, 'SEED_USER_EMAIL');
+});
+
+it('leaves no account behind when the configured credit is malformed', function (): void {
+    config([
+        'app.seed_user.email' => 'demo@example.com',
+        'app.seed_user.password' => 'demo-secret',
+        'app.seed_user.credits_usd' => 'not-a-number',
+    ]);
+
+    expect(fn () => $this->artisan('db:seed', ['--class' => DemoUserSeeder::class]))
+        ->toThrow(InvalidArgumentException::class);
+
+    expect(User::where('email', 'demo@example.com')->exists())->toBeFalse();
+});
+
+it('seeds repeatedly through DatabaseSeeder without duplicating accounts or funds', function (): void {
+    config([
+        'app.seed_admin.email' => 'admin@example.com',
+        'app.seed_admin.password' => 'admin-secret',
+        'app.seed_user.email' => 'demo@example.com',
+        'app.seed_user.password' => 'demo-secret',
+        'app.seed_user.credits_usd' => '25.00',
+    ]);
+
+    $this->artisan('db:seed')->assertSuccessful();
+    $this->artisan('db:seed')->assertSuccessful();
+
+    $demo = User::where('email', 'demo@example.com')->sole();
+
+    expect($demo->wallet->balance)->toBe(25 * Money::NANODOLLARS_PER_USD)
+        ->and(User::where('email', 'admin@example.com')->sole()->is_admin)->toBeTrue()
+        ->and(User::where('email', 'test@example.com')->count())->toBe(1);
 });

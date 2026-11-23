@@ -17,8 +17,9 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         // The starter factory user needs Faker, a dev dependency — skip it
-        // where composer install ran with --no-dev.
-        if (class_exists(Factory::class)) {
+        // where composer install ran with --no-dev. Guarded on email so a
+        // repeated db:seed never trips the unique constraint.
+        if (class_exists(Factory::class) && ! User::query()->where('email', 'test@example.com')->exists()) {
             User::factory()->create([
                 'name' => 'Test User',
                 'email' => 'test@example.com',
@@ -26,8 +27,15 @@ class DatabaseSeeder extends Seeder
         }
 
         // Env-gated seeders run only when their credentials are configured,
-        // so a plain `db:seed` stays safe without them.
-        if (filled(config('app.seed_admin.email')) && filled(config('app.seed_admin.password'))) {
+        // so a plain `db:seed` stays safe without them. AdminUserSeeder throws
+        // on a registered email — check first so its RuntimeException can't
+        // abort a repeated seed before DemoUserSeeder runs.
+        $adminEmail = config('app.seed_admin.email');
+
+        if (
+            filled($adminEmail) && filled(config('app.seed_admin.password'))
+            && ! User::query()->where('email', $adminEmail)->exists()
+        ) {
             $this->call(AdminUserSeeder::class);
         }
 

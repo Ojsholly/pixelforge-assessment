@@ -89,8 +89,10 @@ automatically when the env vars are set. The report lives at `/admin/report`
 `DemoUserSeeder` (`SEED_USER_*` env vars) creates a pre-verified account and
 optionally funds its wallet via `SEED_USER_CREDITS_USD`. It skips silently if
 the email already exists — re-seeding never resets a password or double-funds
-a wallet. See README's **Demo accounts** for the credentials used on the live
-demo and in `.env.example`.
+a wallet. User creation and the wallet credit commit in one transaction, so a
+malformed `SEED_USER_CREDITS_USD` leaves no half-provisioned account. See
+README's **Demo accounts** for the credentials used on the live demo and the
+inline seed command.
 
 ## Tests & checks
 

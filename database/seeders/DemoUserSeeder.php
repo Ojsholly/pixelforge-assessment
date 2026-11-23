@@ -7,6 +7,7 @@ use App\Services\WalletService;
 use App\Support\Money;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use RuntimeException;
 
@@ -44,20 +45,25 @@ class DemoUserSeeder extends Seeder
             return;
         }
 
-        $user = new User;
-        $user->forceFill([
-            'name' => (string) config('app.seed_user.name', 'Demo User'),
-            'email' => $email,
-            'password' => Hash::make($password),
-            'email_verified_at' => now(),
-        ])->save();
+        // User creation and the welcome credit commit atomically: a bad
+        // SEED_USER_CREDITS_USD must not leave an account the existing-email
+        // guard would then skip forever.
+        DB::transaction(function () use ($email, $password): void {
+            $user = new User;
+            $user->forceFill([
+                'name' => (string) config('app.seed_user.name', 'Demo User'),
+                'email' => $email,
+                'password' => Hash::make($password),
+                'email_verified_at' => now(),
+            ])->save();
 
-        $credits = Money::fromUsdString((string) config('app.seed_user.credits_usd', '0.00'));
+            $credits = Money::fromUsdString((string) config('app.seed_user.credits_usd', '0.00'));
 
-        if ($credits > 0) {
-            $walletService = app(WalletService::class);
-            $walletService->ensureWallet($user);
-            $walletService->purchase($user, $credits, 'Welcome credit');
-        }
+            if ($credits > 0) {
+                $walletService = app(WalletService::class);
+                $walletService->ensureWallet($user);
+                $walletService->purchase($user, $credits, 'Welcome credit');
+            }
+        });
     }
 }
