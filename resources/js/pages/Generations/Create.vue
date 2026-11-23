@@ -158,6 +158,9 @@ async function refreshEstimate(): Promise<void> {
         }
 
         costEstimate.value = data as CostEstimate;
+        // A fresh estimate supersedes a stale backend balance rejection — the
+        // insufficient-funds check now reads this payload's balance.
+        form.clearErrors('balance');
     } catch {
         estimateError.value = 'Network error while fetching estimate.';
     } finally {
