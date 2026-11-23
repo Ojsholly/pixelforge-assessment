@@ -29,13 +29,32 @@ final readonly class ReconcileGenerationAction
      */
     public function execute(Generation $generation, DateTimeInterface $timeoutCutoff, DateTimeInterface $outageCutoff): bool
     {
+        $previousStatus = $generation->status->status();
         $providerId = $generation->provider_id;
 
         if ($providerId === null) {
-            return false;
-        }
+            // The submit response never arrived (ambiguous provider error) —
+            // nothing to poll, but a signed webhook can still claim the row
+            // via metadata.local_generation_id. Give that claim window the
+            // full --hard-max-age before releasing the hold.
+            if ($generation->created_at === null || $generation->created_at->gt($outageCutoff)) {
+                return false;
+            }
 
-        $previousStatus = $generation->status->status();
+            $providerData = $this->failedData(
+                $generation,
+                '',
+                'submission_not_confirmed',
+                'The provider never confirmed submission and no webhook claimed the generation.',
+            );
+
+            $result = rescue(
+                fn (): Generation => $this->applyState->execute($generation, $providerData),
+                report: true,
+            );
+
+            return $result instanceof Generation && $result->status->status() !== $previousStatus;
+        }
 
         $providerData = $this->resolveProviderData($generation, $providerId, $timeoutCutoff, $outageCutoff);
 

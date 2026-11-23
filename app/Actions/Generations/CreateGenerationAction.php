@@ -82,7 +82,14 @@ final readonly class CreateGenerationAction
                 ],
             ));
         } catch (ProviderException $providerException) {
-            $this->failAndRelease($generation, $providerException);
+            // A definitive rejection means no provider generation exists — fail
+            // and refund immediately. Ambiguous failures (connection, other 5xx)
+            // may have landed, so the row stays queued with its hold for the
+            // webhook/reconcile path to resolve; a premature Failed would drop
+            // a later signed success event.
+            if ($providerException->isDefinitiveRejection()) {
+                $this->failAndRelease($generation, $providerException);
+            }
 
             throw $providerException;
         }

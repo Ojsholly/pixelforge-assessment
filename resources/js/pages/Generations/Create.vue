@@ -162,7 +162,17 @@ function refreshEstimate(): void {
                 delete (form.errors as Record<string, string | undefined>)
                     .balance;
             },
-            onError: () => fail('Unable to calculate estimate.'),
+            onError: (errors) => {
+                const first =
+                    typeof errors === 'object' && errors !== null
+                        ? Object.values(errors).flat()[0]
+                        : null;
+                fail(
+                    typeof first === 'string' && first !== ''
+                        ? first
+                        : 'Unable to calculate estimate.',
+                );
+            },
             onHttpException: (response) =>
                 fail(
                     responseMessage(response.data) ??

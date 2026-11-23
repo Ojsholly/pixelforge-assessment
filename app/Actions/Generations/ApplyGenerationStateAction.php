@@ -29,7 +29,9 @@ final readonly class ApplyGenerationStateAction
                 ->lockForUpdate()
                 ->firstOrFail();
 
-            $locked->provider_id ??= $data->id;
+            if ($locked->provider_id === null && $data->id !== '') {
+                $locked->provider_id = $data->id;
+            }
 
             if ($locked->provider_created_at === null && $data->createdAt !== null) {
                 $locked->provider_created_at = CarbonImmutable::parse($data->createdAt);

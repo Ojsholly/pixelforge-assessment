@@ -9,6 +9,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\Attributes\Backoff;
 use Illuminate\Queue\Attributes\Tries;
+use Illuminate\Queue\Attributes\UniqueFor;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 
@@ -21,9 +22,12 @@ use Illuminate\Queue\SerializesModels;
  * ShouldBeUnique keyed on the provider event id: redeliveries that arrive
  * while a copy is queued or running are dropped at dispatch, and the
  * processed_at guard under the row lock covers the post-completion window.
+ * uniqueFor bounds a lock orphaned between acquisition and queue insert —
+ * a later redelivery re-dispatches once it expires.
  */
 #[Backoff([10, 60])]
 #[Tries(3)]
+#[UniqueFor(3600)]
 final class ProcessWebhookEvent implements ShouldBeUnique, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;

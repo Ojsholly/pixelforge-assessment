@@ -33,7 +33,6 @@ class ReconcileStaleGenerationsCommand extends Command
 
         $stale = Generation::query()
             ->whereIn('status', [GenerationStatus::Queued->value, GenerationStatus::Processing->value])
-            ->whereNotNull('provider_id')
             ->where('updated_at', '<=', $cutoff)
             ->orderBy('id')
             ->get();

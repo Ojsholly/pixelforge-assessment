@@ -199,6 +199,50 @@ it('retries 503 overloaded with the same idempotency key and releases hold if re
         ->and($wallet->refresh()->balance)->toBe(5 * Money::NANODOLLARS_PER_USD);
 });
 
+it('keeps the generation queued with its hold when submission fails ambiguously', function (): void {
+    seedPricingCacheAndKey();
+
+    $user = User::factory()->create();
+    $wallet = $user->wallet()->firstOrFail();
+    $wallet->balance = 5 * Money::NANODOLLARS_PER_USD;
+    $wallet->save();
+
+    // A 500 the provider may have processed before responding — not retried,
+    // and not a definitive rejection, so the row must survive for the
+    // webhook/reconcile path instead of being failed + refunded.
+    Http::fake([
+        'https://pixelforge.promptedit.dev/v1/pricing' => Http::response(validPricingPayload(), 200),
+        'https://pixelforge.promptedit.dev/v1/generations' => Http::response([
+            'error' => [
+                'code' => 'internal_error',
+                'message' => 'Unexpected provider failure.',
+            ],
+        ], 500),
+    ]);
+
+    $this->actingAs($user)
+        ->from(route('generations.create'))
+        ->post(route('generations.store'), [
+            'prompt' => 'Ambiguous failure test',
+            'size' => '1024x1024',
+            'quality' => 'medium',
+        ])
+        ->assertRedirect(route('generations.create'))
+        ->assertSessionHasErrors('provider');
+
+    $generation = Generation::firstOrFail();
+
+    expect($generation->status)->toBeInstanceOf(Queued::class)
+        ->and($generation->provider_id)->toBeNull()
+        ->and($generation->error_code)->toBeNull()
+        ->and($generation->reserved_amount)->toBe($generation->estimated_max_user_cost)
+        ->and($wallet->refresh()->balance)->toBe(
+            (5 * Money::NANODOLLARS_PER_USD) - $generation->reserved_amount,
+        );
+
+    Http::assertSentCount(2); // 1 pricing + 1 generation (500 is not retried)
+});
+
 it('does not retry 429 concurrency limit and releases hold immediately', function (): void {
     seedPricingCacheAndKey();
 

@@ -37,6 +37,19 @@ class ProviderException extends RuntimeException
         };
     }
 
+    /**
+     * Whether the provider definitively rejected the request before a
+     * generation could exist: 4xx validation/policy/idempotency failures and
+     * explicit `overloaded` rejections. Connection errors and other 5xx are
+     * ambiguous — the request may have landed — so callers should leave the
+     * generation pending for webhook/reconcile recovery instead of failing it.
+     */
+    public function isDefinitiveRejection(): bool
+    {
+        return ($this->statusCode >= 400 && $this->statusCode < 500)
+            || $this->errorCode === 'overloaded';
+    }
+
     public function userMessage(): string
     {
         return match ($this->errorCode) {

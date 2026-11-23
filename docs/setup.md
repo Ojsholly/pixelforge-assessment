@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - PHP 8.4+ with Composer
-- Node 20+ with npm
+- Node `^22.18.0 || ^24.11.0 || >=26.0.0` (Vite+ toolchain requirement)
 - A database: Postgres (production parity) or SQLite (zero-config local)
 - A Pixelforge API key — register at
   <https://pixelforge.promptedit.dev/register> (docs:
@@ -32,7 +32,7 @@ Application-specific settings on top of the Laravel starter kit:
 | Variable                                   | Required | Purpose                                                                                    |
 | ------------------------------------------ | -------- | ------------------------------------------------------------------------------------------ |
 | `IMAGE_PROVIDER`                           | yes      | Provider driver — `pixelforge`                                                             |
-| `PIXELFORGE_BASE_URL`                      | yes      | API base, e.g. `https://pixelforge.promptedit.dev/api`                                     |
+| `PIXELFORGE_BASE_URL`                      | yes      | API base **including `/v1`**, e.g. `https://pixelforge.promptedit.dev/v1`                  |
 | `PIXELFORGE_API_KEY`                       | yes      | Bearer key for all provider calls                                                          |
 | `PIXELFORGE_WEBHOOK_SECRET`                | yes      | HMAC secret for `POST /webhooks/pixelforge` signature verification                         |
 | `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` | no       | Opt-in: `AdminUserSeeder` creates this admin on `db:seed`. Never promote an existing user. |
@@ -64,7 +64,7 @@ composer dev                 # serve + queue:listen + vite + log tail via concur
 Point Pixelforge's webhook delivery at your local app via a tunnel:
 
 ```bash
-npx localtunnel --port 80 --subdomain <your-subdomain>
+npx localtunnel --port 8000 --subdomain <your-subdomain>   # artisan serve default port; use 80 under Laravel Herd
 # set PIXELFORGE webhook URL to https://<subdomain>.loca.lt/webhooks/pixelforge
 ```
 
@@ -78,9 +78,9 @@ php artisan user:make-admin you@example.com
 ```
 
 or seed one: set `SEED_ADMIN_EMAIL` + `SEED_ADMIN_PASSWORD`, then
-`php artisan db:seed` (`AdminUserSeeder` only creates new users and refuses to
-promote existing ones). The report lives at `/admin/report` (403 for
-non-admins).
+`php artisan db:seed --class=AdminUserSeeder` (`AdminUserSeeder` only creates
+new users and refuses to promote existing ones — `DatabaseSeeder` never calls
+it). The report lives at `/admin/report` (403 for non-admins).
 
 ## Tests & checks
 

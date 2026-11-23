@@ -17,6 +17,7 @@ use App\Support\Money;
 use Illuminate\Bus\UniqueLock;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -823,6 +824,107 @@ it('rejects oversized webhook bodies before decoding with 413', function (): voi
         'CONTENT_TYPE' => 'application/json',
         'HTTP_PIXELFORGE_SIGNATURE' => signWebhookPayload($rawBody),
     ], $rawBody)->assertStatus(413);
+});
+
+it('fails stale generations whose submission was never confirmed past the hard max age', function (): void {
+    config(['services.pixelforge.api_key' => 'test-key']);
+
+    $user = User::factory()->create();
+    $wallet = $user->wallet()->firstOrFail();
+    $wallet->balance = 5 * Money::NANODOLLARS_PER_USD;
+    $wallet->save();
+
+    $recent = Generation::factory()->submitted()->for($user)->create([
+        'provider_id' => null,
+        'created_at' => now()->subHours(2),
+        'updated_at' => now()->subMinutes(5),
+    ]);
+
+    $ancient = Generation::factory()->submitted()->for($user)->create([
+        'provider_id' => null,
+        'created_at' => now()->subDays(2),
+        'updated_at' => now()->subMinutes(5),
+    ]);
+
+    app(WalletService::class)->holdForGeneration($user, $ancient, 100_000_000);
+
+    // holdForGeneration re-saves the row — re-stamp its age afterwards.
+    $ancient->forceFill([
+        'created_at' => now()->subDays(2),
+        'updated_at' => now()->subMinutes(5),
+    ])->save();
+
+    $this->artisan('generations:reconcile-stale')
+        ->expectsOutput('Dispatched 2 stale-generation reconciliation job(s).')
+        ->assertSuccessful();
+
+    expect($recent->refresh()->status)->toBeInstanceOf(Queued::class)
+        ->and($ancient->refresh()->status)->toBeInstanceOf(Failed::class)
+        ->and($ancient->error_code)->toBe('submission_not_confirmed')
+        ->and($ancient->provider_id)->toBeNull()
+        ->and($ancient->reserved_amount)->toBe(0)
+        ->and($wallet->refresh()->balance)->toBe(5 * Money::NANODOLLARS_PER_USD);
+});
+
+it('settles a signed delivery end-to-end through the database queue driver', function (): void {
+    config([
+        'services.pixelforge.webhook_secret' => 'whsec_test_secret',
+        'queue.default' => 'database',
+    ]);
+
+    $user = User::factory()->create();
+    $wallet = $user->wallet()->firstOrFail();
+    $holdAmount = 100_000_000;
+    $wallet->balance = (5 * Money::NANODOLLARS_PER_USD) - $holdAmount;
+    $wallet->save();
+
+    $generation = Generation::factory()->submitted()->for($user)->create([
+        'provider_id' => 'gen_dbq_1',
+        'reserved_amount' => $holdAmount,
+        'estimated_max_user_cost' => $holdAmount,
+    ]);
+
+    $rawBody = json_encode([
+        'id' => 'evt_dbq_1',
+        'object' => 'event',
+        'type' => 'generation.succeeded',
+        'data' => [
+            'object' => [
+                'id' => 'gen_dbq_1',
+                'status' => 'succeeded',
+                'rates' => $generation->rates_snapshot,
+                'image_url' => 'https://pixelforge.promptedit.dev/images/gen_dbq_1.png',
+                'usage' => [
+                    'input_text_tokens' => 10,
+                    'input_image_tokens' => 0,
+                    'output_tokens' => 1100,
+                    'reasoning_tokens' => 500,
+                    'total_tokens' => 1610,
+                ],
+                'completed_at' => '2026-11-22T12:00:15Z',
+            ],
+        ],
+    ], JSON_THROW_ON_ERROR);
+
+    $this->call('POST', route('webhooks.pixelforge'), [], [], [], [
+        'CONTENT_TYPE' => 'application/json',
+        'HTTP_PIXELFORGE_SIGNATURE' => signWebhookPayload($rawBody),
+    ], $rawBody)->assertNoContent();
+
+    // The endpoint acknowledged fast: the event row and job row exist, but
+    // nothing is settled until a real worker drains the queue.
+    expect(WebhookEvent::firstWhere('provider_event_id', 'evt_dbq_1')?->processed_at)->toBeNull()
+        ->and($generation->refresh()->status)->toBeInstanceOf(Queued::class)
+        ->and(DB::table('jobs')->count())->toBe(1);
+
+    $this->artisan('queue:work', ['--once' => true, '--queue' => 'default', '--sleep' => 0])
+        ->assertSuccessful();
+
+    expect($generation->refresh()->status)->toBeInstanceOf(Succeeded::class)
+        ->and($generation->actual_user_cost)->toBe(62_875_000)
+        ->and($wallet->refresh()->balance)->toBe((5 * Money::NANODOLLARS_PER_USD) - 62_875_000)
+        ->and(WebhookEvent::firstWhere('provider_event_id', 'evt_dbq_1')?->processed_at)->not->toBeNull()
+        ->and(DB::table('jobs')->count())->toBe(0);
 });
 
 it('dispatches one unique reconcile job per stale generation', function (): void {
