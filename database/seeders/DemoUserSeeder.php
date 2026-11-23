@@ -57,7 +57,13 @@ class DemoUserSeeder extends Seeder
                 'email_verified_at' => now(),
             ])->save();
 
-            $credits = Money::fromUsdString((string) config('app.seed_user.credits_usd', '0.00'));
+            // Blank SEED_USER_CREDITS_USD (e.g. the empty default shipped in
+            // .env.example) means "no credit" — config() only falls back to
+            // its default when the key is missing, not when it's an empty
+            // string.
+            $creditsUsd = config('app.seed_user.credits_usd');
+
+            $credits = Money::fromUsdString(filled($creditsUsd) ? (string) $creditsUsd : '0.00');
 
             if ($credits > 0) {
                 $walletService = app(WalletService::class);

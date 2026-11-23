@@ -62,6 +62,22 @@ it('refuses to run without configured credentials', function (): void {
         ->toThrow(RuntimeException::class, 'SEED_USER_EMAIL');
 });
 
+it('treats a blank configured credit as no credit', function (): void {
+    config([
+        'app.seed_user.email' => 'demo@example.com',
+        'app.seed_user.password' => 'demo-secret',
+        'app.seed_user.credits_usd' => '',
+    ]);
+
+    $this->artisan('db:seed', ['--class' => DemoUserSeeder::class])
+        ->assertSuccessful();
+
+    $user = User::where('email', 'demo@example.com')->sole();
+
+    expect($user->email_verified_at)->not->toBeNull()
+        ->and($user->wallet)->toBeNull();
+});
+
 it('leaves no account behind when the configured credit is malformed', function (): void {
     config([
         'app.seed_user.email' => 'demo@example.com',

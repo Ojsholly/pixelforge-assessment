@@ -27,14 +27,15 @@ class DatabaseSeeder extends Seeder
         }
 
         // Env-gated seeders run only when their credentials are configured,
-        // so a plain `db:seed` stays safe without them. AdminUserSeeder throws
-        // on a registered email — check first so its RuntimeException can't
-        // abort a repeated seed before DemoUserSeeder runs.
+        // so a plain `db:seed` stays safe without them. When the configured
+        // admin email is already an admin, skip (idempotent re-run); when it
+        // exists as a non-admin, let AdminUserSeeder throw — its message
+        // points at `user:make-admin`, which a silent skip would hide.
         $adminEmail = config('app.seed_admin.email');
 
         if (
             filled($adminEmail) && filled(config('app.seed_admin.password'))
-            && ! User::query()->where('email', $adminEmail)->exists()
+            && ! User::query()->where('email', $adminEmail)->where('is_admin', true)->exists()
         ) {
             $this->call(AdminUserSeeder::class);
         }
